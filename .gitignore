@@ -34,6 +34,8 @@ lerna-debug.log*
 /apps/api/storage/pail
 
 # Local editor and operating system files
+.vscode/*
+!.vscode/extensions.json
 .idea/
 .fleet/
 .nova/
