@@ -1,0 +1,8 @@
+{
+  "name": "sipana",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter @sipana/web dev",
+    "dev:api": "pnpm --filter @sipana/api serve"
+  }
+}
