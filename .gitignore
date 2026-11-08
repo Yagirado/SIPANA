@@ -51,3 +51,5 @@ Thumbs.db
 # Local tool credentials
 auth.json
 .phpactor.json
+
+.agents 
