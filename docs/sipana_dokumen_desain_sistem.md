@@ -1376,6 +1376,8 @@ CREATE TABLE audit_logs (
 
 ## 12. Rancangan Antarmuka & Design System
 
+> **Status sistem visual (8 November 2026):** Direction yang berlaku adalah **Jaringan Pangan Lokal** dengan palet hijau-forward. Spesifikasi logo, token, tipografi, komponen, dan status migrasi terbaru ada di [`brand-identity-guidelines.md`](brand-identity-guidelines.md), [`design-system-migration-status.md`](design-system-migration-status.md), serta dokumen native [`sipana-complete-ui.figcraft`](sipana-complete-ui.figcraft). Rincian warna Soft Sky Blue, Deep Marine Navy sebagai warna antarmuka, Plus Jakarta Sans, Quicksand, contoh kode, dan resep layar lama di §12.1–12.9 adalah materi historis, bukan spesifikasi visual aktif. Gunakan PRD sebagai sumber utama untuk perilaku produk; contoh historis tidak mengesahkan fitur yang belum didukung PRD.
+
 ### 12.1 Filosofi Desain & Karakter Visual
 
 Antarmuka SIPANA mengusung estetika **Clean Modern Minimalist Landscape Web**:
