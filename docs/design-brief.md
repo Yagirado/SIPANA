@@ -362,7 +362,7 @@ These are source-document gaps, not design decisions made by this brief. Resolve
 | D-09 (P0) | Listing visibility after claim conflicts: FR-040 says a claim reserves the listing and it leaves the public feed; data model allows multiple claims up to portion_count. | Define whether listings are single-claim reservations or portion-level claims, and how remaining portions are represented. UI inventory assumes one successful claim removes the listing. |
 | D-10 (P0) | Public registration fields say contact but do not settle email vs phone as unique login identifier; NFR-010 says email/password. | Confirm required/unique identifiers and contact verification. Keep copy and validation generic until decided. |
 | D-11 (P1) | Notification channels conflict across UX (email/in-app), technical plan (in-app + WhatsApp), and appendix TBD. | Use channel-neutral notification component patterns; finalize channels/preferences before building settings or delivery copy. |
-| D-12 (P1) | Exact design tokens are absent: brand hex colors, typeface, type sizes other than mobile body minimum, radii, elevation, breakpoint values. | Set these during visual design; validate contrast before adoption. This brief does not fabricate hex values. |
+| D-12 (P1) | The initial brief had no exact design tokens. A native token foundation is now documented in `docs/design-system-migration-status.md`; responsive breakpoint values and implementation-wide token adoption remain open. | Use the documented FigCraft values as the current visual baseline. Validate contrast and behavior in implementation; do not treat unbound screen values as migrated tokens. |
 | D-13 (P1) | UX names map/list, radius/category/pickup filters and search, but FRs specify district filter P1 and purpose filter P2 only. | Treat unreferenced map/search/filter controls as unconfirmed; do not list them as committed release features. |
 | D-14 (P1) | Admin user management and platform metrics are in navigation only; operations and metric definitions are absent. | Reserve IA slots; do not define controls/data until requirements are supplied. |
 | D-15 (P1) | Impact recap is defined for admins by FR-060, but UX also lists UMKM monthly impact and dashboard impact summary. | Confirm whether UMKM sees personal impact data and which metrics (portions, claims, category, weight). Avoid promising kilograms unless measured. |
@@ -378,7 +378,7 @@ These are source-document gaps, not design decisions made by this brief. Resolve
 2. Public browsing does not require a registered member account; claiming does (FR-002/030/040 and UX flow).
 3. The first detailed screen pass should prioritize P0. P1/P2 navigation may be present only when those features are included in the pilot build.
 4. The recipient and UMKM interfaces share tokens/components but retain separate navigation and home-page priorities.
-5. Exact numeric breakpoints and token values are design-system decisions still to be made; accessibility thresholds are fixed by the PRD.
+5. The current color, spacing, and radius values are documented from the native FigCraft system. Exact responsive breakpoints and full token adoption remain implementation decisions; accessibility thresholds are fixed by the PRD.
 6. No unsupported delivery, payment, chat, social feed, public profile, ratings, or native-app functionality is introduced.
 
 ## 12. Traceability notes
