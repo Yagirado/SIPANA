@@ -9,7 +9,7 @@ SIPANA (*Sistem Informasi Pangan Berlebih*) adalah platform web yang dirancang u
 
 SIPANA ingin membuat surplus pangan lebih mudah ditemukan dan dibagikan melalui informasi listing, jadwal pengambilan, verifikasi UMKM, dan pencatatan serah terima.
 
-Pilot awal mencakup Karawang Barat, Telukjambe Timur, dan Karawang Timur. Pengunjung dapat menjelajah tanpa akun; klaim memerlukan akun anggota.
+Wilayah layanan mencakup Karawang Barat, Telukjambe Timur, dan Karawang Timur. Pengunjung dapat menjelajah tanpa akun; klaim memerlukan akun anggota.
 
 ## Fitur
 

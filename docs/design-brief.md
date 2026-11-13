@@ -180,6 +180,8 @@ Flows show the intended UI sequence and the requirements they cover. Global syst
 5. Member can cancel only if cancellation is supported by the final rule. On cancellation, release listing and quota as specified; the current PRD journey mentions cancellation but FRs do not define actor, deadline, or exact behavior.
 6. Mask contact details publicly. Reveal only the minimum necessary to the transacting counterparty at the approved point in the claim lifecycle.
 
+**Pilot implementation decision (13 November 2026):** one claim reserves the entire listing; a listing can be claimed once; recipient-initiated cancellation is not available; an uncompleted claim expires at the listing pickup deadline. No per-recipient global active-claim quota is enforced until its value and policy are defined. The UMKM handover workflow remains responsible for recording completion.
+
 ### 5.7 Mutual handover, no-show, and dispute (FR-043–044, FR-050)
 
 1. UMKM opens Klaim Masuk and claim detail for its own listing.

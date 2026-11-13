@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import logoText from "../assets/logotext.png";
 
 const links = [
@@ -33,9 +34,9 @@ export default function Nav({ isLanding = false }) {
   return (
     <header className="sticky top-0 z-10 border-b border-[#183A2E]/15 bg-white/20 backdrop-blur-sm">
       <div className="mx-auto flex min-h-20 max-w-6xl items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
-        <a
+        <Link
           className={`inline-flex items-center rounded-md focus-visible:outline-2 ${darkNav ? "focus-visible:outline-[#D8F279]" : "focus-visible:outline-[#1C6B4A]"}`}
-          href="/"
+          to="/"
           aria-label="SIPANA, kembali ke atas halaman"
         >
           <img
@@ -44,29 +45,30 @@ export default function Nav({ isLanding = false }) {
             alt="SIPANA — Sistem Informasi Pangan Berlebih"
             loading="eager"
           />
-        </a>
+        </Link>
 
         <nav
           aria-label="Navigasi utama"
           className="hidden items-center gap-8 md:flex"
         >
+          <Link className={navLinkClass} to="/jelajahi">Jelajahi makanan</Link>
           {links.map((link) => (
-            <a
+            <Link
               className={navLinkClass}
-              href={landingHref(link.href)}
+              to={landingHref(link.href)}
               key={link.href}
             >
               {link.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
-        <a
+        <Link
           className="shrink-0 rounded-lg bg-[#1C6B4A] px-4 py-3 text-sm font-semibold text-white hover:bg-[#183A2E]"
-          href=""
+          to="/login"
         >
           Masuk
-        </a>
+        </Link>
       </div>
     </header>
   );

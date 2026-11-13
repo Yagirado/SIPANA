@@ -1,5 +1,6 @@
 import Nav from "../components/nav.jsx";
 import Footer from "../components/footer.jsx";
+import { Link } from "react-router";
 
 export default function LegalPageLayout({
   title,
@@ -14,7 +15,7 @@ export default function LegalPageLayout({
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-14">
         <div className="max-w-4xl">
-          <h1 className="text-3xl font-bold leading-tight tracking-[-0.025em] sm:text-4xl">
+          <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
             {title}
           </h1>
           <p className="mt-3 text-sm leading-6 text-[#68756E] sm:text-base">
@@ -57,13 +58,13 @@ export default function LegalPageLayout({
                   {panel.body}
                 </p>
                 {panel.action && (
-                  <a
+                  <Link
                     className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1C6B4A] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#183A2E] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C6B4A]"
-                    href={panel.action.href}
+                    to={panel.action.href}
                   >
                     {panel.action.label}
                     <span aria-hidden="true">→</span>
-                  </a>
+                  </Link>
                 )}
               </section>
             ))}
