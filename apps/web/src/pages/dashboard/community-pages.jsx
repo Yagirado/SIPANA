@@ -3,11 +3,11 @@ import { CircleUserRound, ClipboardList, LogOut, MapPin, ShieldAlert } from "luc
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useAuth } from "../../auth/use-auth.js";
 import { apiRequest } from "../../lib/api.js";
+import { useReferenceData } from "../../lib/use-reference-data.js";
 import { AdminBackLink, AdminPage, AdminPageHeading, AdminPanel } from "../../components/dashboard/admin-ui.jsx";
 import { DashboardState } from "../../components/dashboard/dashboard-state.jsx";
 import { formatDateTime, purposeLabel } from "./community-formatters.js";
-
-const districts = ["Karawang Barat", "Telukjambe Timur", "Karawang Timur"];
+import { ReportCasesPanel } from "./report-cases.jsx";
 
 function CommunityPage({ title, heading, description, children }) {
   return <AdminPage title={title}><AdminPageHeading eyebrow="AKUN KOMUNITAS" title={heading} description={description} /><div className="mt-7 space-y-5">{children}</div></AdminPage>;
@@ -94,7 +94,7 @@ export function CommunityClaimDetailPage() {
           <dl className="mt-5 grid gap-5 sm:grid-cols-2">
             <div><dt className="text-sm text-[#63756B]">Status</dt><dd className="mt-1 font-semibold">{claimStatusLabel(claim.status)}</dd></div>
             <div><dt className="text-sm text-[#63756B]">Jumlah listing</dt><dd className="mt-1 font-semibold">{claim.listing.quantity} porsi</dd></div>
-            <div><dt className="text-sm text-[#63756B]">Peruntukan</dt><dd className="mt-1 font-semibold">{purposeLabel(claim.listing.purpose)}</dd></div>
+            <div><dt className="text-sm text-[#63756B]">Peruntukan</dt><dd className="mt-1 font-semibold">{claim.listing.purpose_label || purposeLabel(claim.listing.purpose)}</dd></div>
             <div><dt className="text-sm text-[#63756B]">Jam memasak</dt><dd className="mt-1 font-semibold">{formatDateTime(claim.listing.prepared_at)}</dd></div>
             <div className="sm:col-span-2"><dt className="text-sm text-[#63756B]">Alamat pengambilan</dt><dd className="mt-1 flex items-start gap-2 font-semibold"><MapPin aria-hidden="true" className="mt-0.5 shrink-0 text-[#1C6B4A]" size={17} />{claim.listing.pickup_address}, {claim.listing.district}</dd></div>
           </dl>
@@ -166,7 +166,7 @@ export function CommunityReportsPage() {
   }
 
   return (
-    <CommunityPage title="Laporan saya" heading="Laporan dan keamanan" description="Laporkan masalah pada listing atau klaim. Detail laporan hanya terlihat oleh kamu dan tim admin.">
+    <CommunityPage title="Laporan saya" heading="Laporan dan keamanan" description="Laporkan masalah pada listing atau klaim. Uraian asli hanya terlihat oleh kamu dan admin; pihak terlapor menerima ringkasan aman bila diminta menjawab.">
       {(listingId || claimId) ? <AdminPanel title={`Laporkan ${targetLabel}`}>
         <form className="mt-4 space-y-4" onSubmit={(event) => void submitReport(event)}>
           <label className="block text-sm font-semibold text-[#364D41]">Kategori
@@ -180,6 +180,7 @@ export function CommunityReportsPage() {
           {notice ? <p className={`text-sm ${notice.startsWith("Laporan terkirim") ? "text-[#236644]" : "text-[#A33B32]"}`} role={notice.startsWith("Laporan terkirim") ? "status" : "alert"}>{notice}</p> : null}
         </form>
       </AdminPanel> : <AdminPanel title="Mulai laporan" description="Buka detail listing atau klaim untuk melaporkan masalah yang kamu temukan."><Link className="mt-3 inline-flex min-h-11 items-center font-semibold text-[#1C6B4A]" to="/dashboard/community/jelajahi">Jelajahi listing</Link></AdminPanel>}
+      <ReportCasesPanel />
       <AdminPanel title="Riwayat laporan" description="Status laporan diperbarui oleh tim admin.">
         {status.type === "loading" ? <div className="mt-3"><DashboardState title="Memuat laporan" description="Mengambil laporan kamu…" tone="loading" compact /></div> : null}
         {status.type === "error" ? <div className="mt-3"><DashboardState title="Laporan belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((count) => count + 1)} tone="error" compact /></div> : null}
@@ -192,6 +193,7 @@ export function CommunityReportsPage() {
 }
 
 export function CommunityProfilePage() {
+  const { data: referenceData, status: referenceStatus } = useReferenceData();
   const { refresh, logout } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
@@ -203,7 +205,7 @@ export function CommunityProfilePage() {
   useEffect(() => {
     let active = true;
     apiRequest("/api/community/profile")
-      .then((result) => { if (active) { setProfile(result); setValues({ name: result.name ?? "", phone: result.phone ?? "", gender: result.gender ?? "", birth_date: result.birth_date ?? "", district: result.district ?? "" }); setStatus({ type: "ready", message: "" }); } })
+      .then((result) => { if (active) { setProfile(result); setValues({ name: result.name ?? "", phone: result.phone ?? "", gender: result.gender ?? "", birth_date: result.birth_date ?? "", district: result.district_key ?? "" }); setStatus({ type: "ready", message: "" }); } })
       .catch((error) => {
         if (!active) return;
         if (error.status === 401 || error.status === 403) { void refresh(); return; }
@@ -248,7 +250,7 @@ export function CommunityProfilePage() {
             <label className="block text-sm font-semibold text-[#364D41]">Nama lengkap<input className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] px-3 font-normal focus:border-[#1C6B4A] focus:outline-none focus:ring-2 focus:ring-[#1C6B4A]/15" minLength={2} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} required value={values.name} /></label>
             <label className="block text-sm font-semibold text-[#364D41]">Email<input className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-[#F5F7F1] px-3 font-normal text-[#63756B]" readOnly value={profile.email} /></label>
             <label className="block text-sm font-semibold text-[#364D41]">Nomor WhatsApp<input className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] px-3 font-normal focus:border-[#1C6B4A] focus:outline-none focus:ring-2 focus:ring-[#1C6B4A]/15" inputMode="tel" onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))} required value={values.phone} /></label>
-            <label className="block text-sm font-semibold text-[#364D41]">Kecamatan<select className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 font-normal" onChange={(event) => setValues((current) => ({ ...current, district: event.target.value }))} required value={values.district}>{districts.map((district) => <option key={district} value={district}>{district}</option>)}</select></label>
+            <label className="block text-sm font-semibold text-[#364D41]">Kecamatan<select className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 font-normal" disabled={referenceStatus.type !== "ready"} onChange={(event) => setValues((current) => ({ ...current, district: event.target.value }))} required value={values.district}>{referenceData.districts.map((district) => <option key={district.key} value={district.key}>{district.label}</option>)}</select></label>
             <label className="block text-sm font-semibold text-[#364D41]">Jenis kelamin (opsional)<select className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 font-normal" onChange={(event) => setValues((current) => ({ ...current, gender: event.target.value }))} value={values.gender}><option value="">Belum diisi</option><option value="male">Laki-laki</option><option value="female">Perempuan</option><option value="prefer_not_to_say">Memilih tidak menjawab</option></select></label>
             <label className="block text-sm font-semibold text-[#364D41]">Tanggal lahir (opsional)<input className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] px-3 font-normal" max={new Date().toISOString().slice(0, 10)} onChange={(event) => setValues((current) => ({ ...current, birth_date: event.target.value }))} type="date" value={values.birth_date ?? ""} /></label>
             <div className="flex flex-wrap items-center gap-3 pt-1 sm:col-span-2"><button className="min-h-11 rounded-lg bg-[#1C6B4A] px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={submitting} type="submit">{submitting ? "Menyimpan…" : "Simpan perubahan"}</button>{notice.message ? <p className={`text-sm ${notice.type === "error" ? "text-[#A33B32]" : "text-[#236644]"}`} role={notice.type === "error" ? "alert" : "status"}>{notice.message}</p> : null}</div>

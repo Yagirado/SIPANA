@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'phone', 'gender', 'birth_date', 'district', 'privacy_consent_at'])]
+#[Fillable(['name', 'email', 'password', 'phone', 'gender', 'birth_date', 'district', 'privacy_consent_at', 'moderation_status', 'moderation_reason', 'moderation_case_id', 'restricted_at'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -43,8 +43,14 @@ class User extends Authenticatable
             'birth_date' => 'date:Y-m-d',
             'privacy_consent_at' => 'datetime',
             'umkm_verified_at' => 'datetime',
+            'restricted_at' => 'immutable_datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function isModerationRestricted(): bool
+    {
+        return $this->moderation_status === 'restricted';
     }
 
     public function hasRole(string ...$roles): bool

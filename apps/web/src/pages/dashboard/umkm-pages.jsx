@@ -1,16 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ArrowUpRight, Check, Clock3, FileText, Plus, ShieldCheck, Utensils } from "lucide-react";
 import { useAuth } from "../../auth/use-auth.js";
 import { AdminPage, AdminPageHeading, AdminPanel, AdminBackLink } from "../../components/dashboard/admin-ui.jsx";
 import { DashboardState } from "../../components/dashboard/dashboard-state.jsx";
 import { apiRequest } from "../../lib/api.js";
+import { useReferenceData } from "../../lib/use-reference-data.js";
 import { formatDateTime, purposeLabel } from "./community-formatters.js";
 
-const districts = ["Karawang Barat", "Telukjambe Timur", "Karawang Timur"];
-const purposeOptions = [["consumption", "Untuk konsumsi"], ["redistribution", "Redistribusi"], ["animal_feed", "Pakan ternak"]];
 const listingStatuses = [["published", "Aktif"], ["claimed", "Diklaim"], ["history", "Riwayat"]];
 const statusLabels = { published: "Aktif", claimed: "Diklaim", completed: "Selesai", expired: "Kedaluwarsa", withdrawn: "Ditarik", removed: "Dihapus" };
+function currentJakartaMonth() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return `${year}-${month}`;
+}
+
 const statusStyles = {
   published: "bg-[#E6F3E9] text-[#236644]",
   claimed: "bg-[#FFF3D8] text-[#795D23]",
@@ -76,12 +86,14 @@ export function UmkmDashboardPage() {
   const { refresh } = useAuth();
   const data = useApiResource("/api/umkm/dashboard", refresh);
   const summary = data.data;
-  const canPost = summary?.verification?.status === "verified";
+  const isRestricted = summary?.moderation?.status === "restricted";
+  const canPost = summary?.verification?.status === "verified" && !isRestricted;
   return <UmkmPage title="Ringkasan usaha" heading={`Selamat datang, ${summary?.user?.name ?? ""}`} description="Pantau surplus, klaim masuk, dan dampak usaha kamu di SIPANA."
     action={<Link className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-semibold ${canPost ? "bg-[#1C6B4A] text-white hover:bg-[#16573C]" : "bg-[#E5EBE2] text-[#63756B]"}`} to={canPost ? "/dashboard/umkm/posting-cepat" : "/dashboard/umkm/profil"}><Plus size={17} aria-hidden="true" />{canPost ? "Posting Cepat" : "Lihat verifikasi"}</Link>}>
     <LoadingOrError resource={data} title="Memuat ringkasan usaha" onRetry={data.reload} />
     {summary ? <>
       <VerificationNotice verification={summary.verification} />
+      {isRestricted ? <div className="rounded-xl border border-[#E8C5C1] bg-[#FFF5F3] p-4 text-sm text-[#8F342C]"><p className="font-semibold">Akun dibatasi berdasarkan keputusan moderasi</p><p className="mt-1">{summary.moderation.reason || "Listing baru belum dapat diterbitkan."} Kamu tetap dapat menangani klaim yang berjalan, membaca kasus, menjawab, dan mengajukan banding.</p><Link className="mt-2 inline-flex font-semibold underline" to="/dashboard/umkm/kasus">Buka kasus dan laporan</Link></div> : null}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[["Listing aktif", summary.metrics.active_listings, "Tersedia untuk diklaim"], ["Klaim masuk", summary.metrics.incoming_claims, "Menunggu serah terima"], ["Selesai bulan ini", summary.metrics.completed_handover, "Serah terima tercatat"], ["Porsi disalurkan", summary.metrics.portions_distributed, "Dari serah terima selesai"]].map(([label, value, detail]) => <div className="rounded-2xl border border-[#DDE5DC] bg-white p-5" key={label}><p className="text-sm font-medium text-[#63756B]">{label}</p><p className="mt-2 text-3xl font-bold tracking-tight text-[#183A2E]">{value}</p><p className="mt-1 text-xs text-[#829187]">{detail}</p></div>)}
       </section>
@@ -93,6 +105,7 @@ export function UmkmDashboardPage() {
         <AdminPanel title="Perlu tindakan" description="Klaim aktif menunggu konfirmasi serah terima.">
           {summary.next_claim ? <div className="mt-4 rounded-xl bg-[#F5F7F1] p-4"><p className="text-sm font-semibold">{summary.next_claim.listing.title}</p><p className="mt-1 text-sm text-[#63756B]">Penerima {summary.next_claim.claimant?.name ?? "anggota"}</p><p className="mt-2 text-xs text-[#63756B]">Batas ambil {formatDateTime(summary.next_claim.listing.pickup_ends_at)}</p><Link className="mt-3 inline-flex min-h-10 items-center rounded-lg border border-[#1C6B4A] px-3 text-sm font-semibold text-[#1C6B4A]" to={`/dashboard/umkm/klaim/${summary.next_claim.id}`}>Lihat klaim</Link></div> : <EmptyState title="Belum ada klaim aktif" description="Klaim baru akan muncul di sini setelah warga mengambil listing." />}
           <Link className="mt-4 inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-[#1C6B4A]" to="/dashboard/umkm/klaim-masuk">Buka semua klaim <ArrowUpRight size={16} aria-hidden="true" /></Link>
+          <Link className="mt-2 flex min-h-10 items-center gap-2 text-sm font-semibold text-[#1C6B4A]" to="/dashboard/umkm/kasus">Kasus dan laporan <ArrowUpRight size={16} aria-hidden="true" /></Link>
         </AdminPanel>
       </div>
     </> : null}
@@ -136,15 +149,50 @@ function localDateTime(value) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
-const initialListing = { title: "", description: "", quantity: "", prepared_at: "", pickup_starts_at: "", pickup_ends_at: "", purpose: "consumption", district: districts[0], safety_attested: false, terms_accepted: false };
+function DateTime24Input({ value, onChange, min, max, label }) {
+  const [datePart, setDatePart] = useState(() => value?.slice(0, 10) ?? "");
+  const [timePart, setTimePart] = useState(() => value?.slice(11, 16) ?? "");
+  const timeInput = useRef(null);
+  const validTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timePart);
+  const dateTime = datePart && validTime ? `${datePart}T${timePart}` : "";
+
+  useEffect(() => {
+    let message = "";
+    if (dateTime && min && dateTime < min) message = "Waktu harus setelah batas minimum.";
+    if (dateTime && max && dateTime > max) message = "Jam masak harus sekarang atau waktu sebelumnya.";
+    timeInput.current?.setCustomValidity(message);
+  }, [dateTime, min, max]);
+
+  function updateDate(nextDate) {
+    setDatePart(nextDate);
+    if (!nextDate) onChange("");
+    else if (validTime) onChange(`${nextDate}T${timePart}`);
+  }
+
+  function updateTime(nextTime) {
+    const digits = nextTime.replace(/\D/g, "").slice(0, 4);
+    const formattedTime = digits.length < 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    setTimePart(formattedTime);
+    if (datePart && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(formattedTime)) onChange(`${datePart}T${formattedTime}`);
+  }
+
+  return <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-2">
+    <input aria-label={`Tanggal ${label}`} className={inputClass} max={max?.slice(0, 10)} min={min?.slice(0, 10)} onChange={(event) => updateDate(event.target.value)} required type="date" value={datePart} />
+    <input aria-label={`${label}, format 24 jam`} className={inputClass} inputMode="text" maxLength={5} onChange={(event) => updateTime(event.target.value)} pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" ref={timeInput} required type="text" value={timePart} />
+  </div>;
+}
+
+const initialListing = { title: "", description: "", quantity: "", prepared_at: "", pickup_starts_at: "", pickup_ends_at: "", purpose: "", district: "", safety_attested: false, terms_accepted: false };
 
 export function UmkmListingFormPage() {
   const { listingId } = useParams();
   const isEdit = Boolean(listingId);
   const navigate = useNavigate();
   const { refresh } = useAuth();
+  const { data: referenceData, status: referenceStatus } = useReferenceData();
   const listingsResource = useApiResource(isEdit ? `/api/umkm/listings/${listingId}` : "/api/umkm/dashboard", refresh);
   const [draft, setDraft] = useState({ key: "", values: {} });
+  const [photoFile, setPhotoFile] = useState(null);
   const [notice, setNotice] = useState({ type: "", message: "" });
   const [submitting, setSubmitting] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -155,7 +203,7 @@ export function UmkmListingFormPage() {
   const mustAcceptTerms = !isEdit && !terms?.accepted_at;
   const mayPost = isEdit || verification?.status === "verified";
   const draftKey = listingId ?? "new-listing";
-  const listingValues = listing ? { title: listing.title ?? "", description: listing.description ?? "", quantity: String(listing.quantity ?? ""), prepared_at: localDateTime(listing.prepared_at), pickup_starts_at: localDateTime(listing.pickup_starts_at), pickup_ends_at: localDateTime(listing.pickup_ends_at), purpose: listing.purpose ?? "consumption", district: listing.district ?? districts[0], safety_attested: false } : initialListing;
+  const listingValues = listing ? { title: listing.title ?? "", description: listing.description ?? "", quantity: String(listing.quantity ?? ""), prepared_at: localDateTime(listing.prepared_at), pickup_starts_at: localDateTime(listing.pickup_starts_at), pickup_ends_at: localDateTime(listing.pickup_ends_at), purpose: listing.purpose ?? referenceData.purposes[0]?.key ?? "", district: listing.district_key ?? referenceData.listing_districts[0]?.key ?? "", safety_attested: false } : { ...initialListing, purpose: referenceData.purposes[0]?.key ?? "", district: referenceData.listing_districts[0]?.key ?? "" };
   const values = { ...listingValues, ...(draft.key === draftKey ? draft.values : {}) };
   const setValues = (next) => setDraft({ key: draftKey, values: next });
 
@@ -165,7 +213,15 @@ export function UmkmListingFormPage() {
     setSubmitting(true);
     try {
       const body = { ...values, quantity: Number(values.quantity), prepared_at: new Date(values.prepared_at).toISOString(), pickup_starts_at: new Date(values.pickup_starts_at).toISOString(), pickup_ends_at: new Date(values.pickup_ends_at).toISOString() };
-      const result = await apiRequest(isEdit ? `/api/umkm/listings/${listingId}` : "/api/umkm/listings", { method: isEdit ? "PUT" : "POST", body });
+      let request = { method: isEdit ? "PUT" : "POST", body };
+      if (photoFile) {
+        const form = new FormData();
+        Object.entries(body).forEach(([key, value]) => form.append(key, String(value)));
+        form.append("photo", photoFile);
+        if (isEdit) form.append("_method", "PUT");
+        request = { method: "POST", body: form };
+      }
+      const result = await apiRequest(isEdit ? `/api/umkm/listings/${listingId}` : "/api/umkm/listings", request);
       navigate(`/dashboard/umkm/listing-terbit/${result.listing.id}`, { replace: true });
     } catch (error) {
       setNotice({ type: "error", message: error.message });
@@ -201,16 +257,17 @@ export function UmkmListingFormPage() {
           <Field label="Jenis makanan" required><input autoComplete="off" className={inputClass} maxLength={160} onChange={(event) => setValues({ ...values, title: event.target.value })} placeholder="Contoh: Roti gandum segar" required value={values.title} /></Field>
           <Field label="Jumlah porsi" required><input className={inputClass} min="1" onChange={(event) => setValues({ ...values, quantity: event.target.value })} placeholder="Contoh: 6" required type="number" value={values.quantity} /></Field>
           <Field label="Keterangan" hint="Opsional"><textarea className={`${inputClass} min-h-24 py-2`} maxLength={2000} onChange={(event) => setValues({ ...values, description: event.target.value })} placeholder="Informasi singkat tentang makanan" value={values.description} /></Field>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="Jam masak" required><input className={inputClass} max={localDateTime(new Date())} onChange={(event) => setValues({ ...values, prepared_at: event.target.value })} required type="datetime-local" value={values.prepared_at} /></Field><Field label="Kecamatan" required><select className={inputClass} onChange={(event) => setValues({ ...values, district: event.target.value })} value={values.district}>{districts.map((district) => <option key={district}>{district}</option>)}</select></Field></div>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="Waktu pengambilan mulai" required><input className={inputClass} min={localDateTime(new Date())} onChange={(event) => setValues({ ...values, pickup_starts_at: event.target.value })} required type="datetime-local" value={values.pickup_starts_at} /></Field><Field label="Batas ambil" required><input className={inputClass} min={values.pickup_starts_at || localDateTime(new Date())} onChange={(event) => setValues({ ...values, pickup_ends_at: event.target.value })} required type="datetime-local" value={values.pickup_ends_at} /></Field></div>
-          <fieldset><legend className="text-sm font-semibold text-[#364D41]">Peruntukan <span className="text-[#A33B32]">*</span></legend><div className="mt-2 grid gap-2 sm:grid-cols-3">{purposeOptions.map(([value, label]) => <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm ${values.purpose === value ? "border-[#1C6B4A] bg-[#F0F6F1] text-[#1C6B4A]" : "border-[#D2DDD2] bg-white text-[#52645A]"}`} key={value}><input checked={values.purpose === value} className="accent-[#1C6B4A]" name="purpose" onChange={() => setValues({ ...values, purpose: value })} type="radio" />{label}</label>)}</div></fieldset>
+          <Field label="Foto makanan" hint="Opsional · JPG, PNG, atau WebP, maks. 5 MB"><input accept="image/jpeg,image/png,image/webp" className={inputClass} onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} type="file" />{photoFile ? <span className="mt-1 block text-xs font-normal text-[#63756B]">Foto baru: {photoFile.name}</span> : listing?.image_url ? <span className="mt-1 block text-xs font-normal text-[#63756B]">Foto saat ini akan dipakai jika tidak memilih foto baru.</span> : null}</Field>
+          <div className="grid gap-4 sm:grid-cols-2"><Field hint="Pilih tanggal dan masukkan waktu format 24 jam (HH:mm)" label="Jam masak" required><DateTime24Input label="jam masak" max={localDateTime(new Date())} onChange={(prepared_at) => setValues({ ...values, prepared_at })} value={values.prepared_at} /></Field><Field label="Kecamatan" required><select className={inputClass} disabled={referenceStatus.type !== "ready"} onChange={(event) => setValues({ ...values, district: event.target.value })} required value={values.district}>{referenceData.listing_districts.map((district) => <option key={district.key} value={district.key}>{district.label}</option>)}</select></Field></div>
+          <div className="grid gap-4 sm:grid-cols-2"><Field hint="Pilih tanggal dan masukkan waktu format 24 jam (HH:mm)" label="Waktu pengambilan mulai" required><DateTime24Input label="waktu pengambilan mulai" min={localDateTime(new Date())} onChange={(pickup_starts_at) => setValues({ ...values, pickup_starts_at })} value={values.pickup_starts_at} /></Field><Field hint="Pilih tanggal dan masukkan waktu format 24 jam (HH:mm)" label="Batas ambil" required><DateTime24Input label="batas ambil" min={values.pickup_starts_at || localDateTime(new Date())} onChange={(pickup_ends_at) => setValues({ ...values, pickup_ends_at })} value={values.pickup_ends_at} /></Field></div>
+          <fieldset><legend className="text-sm font-semibold text-[#364D41]">Peruntukan <span className="text-[#A33B32]">*</span></legend><div className="mt-2 grid gap-2 sm:grid-cols-3">{referenceData.purposes.map(({ key, label }) => <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm ${values.purpose === key ? "border-[#1C6B4A] bg-[#F0F6F1] text-[#1C6B4A]" : "border-[#D2DDD2] bg-white text-[#52645A]"}`} key={key}><input checked={values.purpose === key} className="accent-[#1C6B4A]" name="purpose" onChange={() => setValues({ ...values, purpose: key })} type="radio" />{label}</label>)}</div></fieldset>
           <label className="flex items-start gap-3 rounded-xl bg-[#F5F7F1] p-4 text-sm leading-6 text-[#52645A]"><input checked={values.safety_attested} className="mt-1 size-4 shrink-0 accent-[#1C6B4A]" onChange={(event) => setValues({ ...values, safety_attested: event.target.checked })} required type="checkbox" /><span>Saya memastikan makanan masih layak untuk peruntukan yang dipilih dan informasi waktu pengambilan sudah benar.</span></label>
           {mustAcceptTerms ? <div className="flex items-start gap-3 rounded-xl border border-[#DDE5DC] p-4 text-sm leading-6 text-[#52645A]"><input aria-label="Saya menyetujui ketentuan penggunaan UMKM" checked={values.terms_accepted} className="mt-1 size-4 shrink-0 accent-[#1C6B4A]" onChange={(event) => setValues({ ...values, terms_accepted: event.target.checked })} required type="checkbox" /><p>Saya menyetujui <Link className="font-semibold text-[#1C6B4A] underline" target="_blank" to="/ketentuan-pengguna">ketentuan penggunaan UMKM</Link>, termasuk tanggung jawab keamanan pangan.</p></div> : null}
           {notice.message ? <p className={`text-sm ${notice.type === "error" ? "text-[#A33B32]" : "text-[#236644]"}`} role={notice.type === "error" ? "alert" : "status"}>{notice.message}</p> : null}
           <button className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#1C6B4A] px-5 text-sm font-semibold text-white hover:bg-[#16573C] disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting || !values.safety_attested || (mustAcceptTerms && !values.terms_accepted)} type="submit">{submitting ? "Menyimpan…" : isEdit ? "Simpan perubahan" : "Publikasikan listing"}</button>
         </form>
       </AdminPanel>
-      <div className="space-y-5"><AdminPanel title="Pratinjau listing"><div className="mt-4 rounded-xl bg-[#F0F6F1] p-5"><p className="font-semibold">{values.title || "Nama makanan tampil di sini"}</p><p className="mt-2 text-sm text-[#63756B]">{values.quantity || "Jumlah"} porsi · {purposeLabel(values.purpose)}</p><p className="mt-2 flex items-center gap-2 text-sm text-[#63756B]"><Clock3 size={16} />{values.pickup_starts_at ? new Date(values.pickup_starts_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "Waktu pengambilan"}</p></div></AdminPanel><div className="rounded-2xl border border-[#EAD8A9] bg-[#FFF9E8] p-5"><h3 className="font-semibold text-[#694F1E]">Sebelum dipublikasikan</h3><p className="mt-2 text-sm leading-6 text-[#795D23]">Penerima akan melihat waktu masak, jumlah porsi, peruntukan, dan batas pengambilan.</p></div>{isEdit ? <AdminPanel title="Tarik listing" description="Listing aktif yang belum diklaim dapat ditarik kapan saja."><button className="mt-3 min-h-10 text-sm font-semibold text-[#A33B32]" onClick={() => setWithdrawOpen(true)} type="button">Tarik listing dari publik <ArrowUpRight className="ml-1 inline" size={15} /></button></AdminPanel> : null}</div>
+      <div className="space-y-5"><AdminPanel title="Pratinjau listing"><div className="mt-4 rounded-xl bg-[#F0F6F1] p-5"><p className="font-semibold">{values.title || "Nama makanan tampil di sini"}</p><p className="mt-2 text-sm text-[#63756B]">{values.quantity || "Jumlah"} porsi · {referenceData.purposes.find((item) => item.key === values.purpose)?.label || purposeLabel(values.purpose)}</p><p className="mt-2 flex items-center gap-2 text-sm text-[#63756B]"><Clock3 size={16} />{values.pickup_starts_at ? new Date(values.pickup_starts_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "Waktu pengambilan"}</p></div></AdminPanel><div className="rounded-2xl border border-[#EAD8A9] bg-[#FFF9E8] p-5"><h3 className="font-semibold text-[#694F1E]">Sebelum dipublikasikan</h3><p className="mt-2 text-sm leading-6 text-[#795D23]">Penerima akan melihat waktu masak, jumlah porsi, peruntukan, dan batas pengambilan.</p></div>{isEdit ? <AdminPanel title="Tarik listing" description="Listing aktif yang belum diklaim dapat ditarik kapan saja."><button className="mt-3 min-h-10 text-sm font-semibold text-[#A33B32]" onClick={() => setWithdrawOpen(true)} type="button">Tarik listing dari publik <ArrowUpRight className="ml-1 inline" size={15} /></button></AdminPanel> : null}</div>
     </div> : null}
     {withdrawOpen ? <div className="fixed inset-0 z-50 grid place-items-center bg-[#10251E]/55 p-4" role="presentation"><section aria-labelledby="withdraw-title" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" role="dialog"><h2 className="text-lg font-bold" id="withdraw-title">Tarik listing ini?</h2><p className="mt-2 text-sm leading-6 text-[#63756B]">Listing akan hilang dari daftar publik dan tetap tersimpan di riwayat usahamu.</p>{notice.message ? <p className="mt-3 text-sm text-[#A33B32]" role="alert">{notice.message}</p> : null}<div className="mt-5 flex flex-wrap justify-end gap-2"><button className="min-h-11 rounded-lg border border-[#DDE5DC] px-4 text-sm font-semibold" onClick={() => setWithdrawOpen(false)} type="button">Kembali</button><button className="min-h-11 rounded-lg bg-[#A33B32] px-4 text-sm font-semibold text-white disabled:opacity-60" disabled={withdrawBusy} onClick={() => void withdraw()} type="button">{withdrawBusy ? "Menarik…" : "Tarik listing"}</button></div></section></div> : null}
   </UmkmPage>;
@@ -299,13 +356,16 @@ function Info({ label, value }) { return <div className="min-w-0"><dt className=
 
 export function UmkmProfilePage() {
   const { refresh } = useAuth();
+  const { data: referenceData, status: referenceStatus } = useReferenceData();
   const resource = useApiResource("/api/umkm/profile", refresh);
   const [draft, setDraft] = useState({ key: "", values: {} });
   const [proofFile, setProofFile] = useState(null);
   const [notice, setNotice] = useState({ type: "", message: "" });
   const [busy, setBusy] = useState(false);
   const profileKey = resource.data?.email ?? "umkm-profile";
-  const profileValues = resource.data ? { name: resource.data.name ?? "", phone: resource.data.phone ?? "", business_name: resource.data.business_name ?? "", business_type: resource.data.business_type ?? "", district: resource.data.district ?? districts[0], business_address: resource.data.business_address ?? "" } : {};
+  const profileValues = resource.data ? { name: resource.data.name ?? "", phone: resource.data.phone ?? "", business_name: resource.data.business_name ?? "", business_type: resource.data.business_type ?? "", district: resource.data.district_key ?? "", business_address: resource.data.business_address ?? "" } : {};
+  const profileDistricts = [...referenceData.districts];
+  if (resource.data?.district_key && !profileDistricts.some((item) => item.key === resource.data.district_key)) profileDistricts.push({ key: resource.data.district_key, label: resource.data.district });
   const values = { ...profileValues, ...(draft.key === profileKey ? draft.values : {}) };
   const setValues = (next) => setDraft({ key: profileKey, values: next });
   async function save(event) {
@@ -328,7 +388,7 @@ export function UmkmProfilePage() {
     <LoadingOrError resource={resource} title="Memuat profil usaha" onRetry={resource.reload} />
     {profile ? <><VerificationNotice verification={profile.verification} />
       <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]"><AdminPanel title="Informasi usaha" description="Perubahan identitas, kecamatan, alamat, atau foto usaha mengembalikan status ke antrean pemeriksaan.">
-        <form className="mt-4 space-y-4" onSubmit={(event) => void save(event)}><div className="grid gap-4 sm:grid-cols-2"><Field label="Nama pemilik" required><input className={inputClass} maxLength={255} onChange={(event) => setValues({ ...values, name: event.target.value })} required value={values.name} /></Field><Field label="Email"><input className={`${inputClass} bg-[#F5F7F1]`} readOnly value={profile.email} /></Field></div><Field label="Nomor kontak" required><input className={inputClass} maxLength={20} onChange={(event) => setValues({ ...values, phone: event.target.value })} required value={values.phone} /></Field><Field label="Nama usaha" required><input className={inputClass} maxLength={160} onChange={(event) => setValues({ ...values, business_name: event.target.value })} required value={values.business_name} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Jenis usaha" required><input className={inputClass} maxLength={80} onChange={(event) => setValues({ ...values, business_type: event.target.value })} required value={values.business_type} /></Field><Field label="Kecamatan" required><select className={inputClass} onChange={(event) => setValues({ ...values, district: event.target.value })} value={values.district}>{districts.map((district) => <option key={district}>{district}</option>)}</select></Field></div><Field label="Alamat pickup" required><textarea className={`${inputClass} min-h-24 py-2`} maxLength={1000} onChange={(event) => setValues({ ...values, business_address: event.target.value })} required value={values.business_address} /></Field><Field label="Ganti foto usaha" hint="Opsional · JPG, PNG, atau WebP, maks. 5 MB"><input accept="image/jpeg,image/png,image/webp" className="block min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 py-2 text-sm font-normal file:mr-3 file:rounded-md file:border-0 file:bg-[#E6F3E9] file:px-3 file:py-1 file:font-semibold file:text-[#236644]" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} type="file" />{proofFile ? <span className="mt-1 block text-xs font-normal text-[#63756B]">Berkas baru: {proofFile.name}</span> : null}</Field>{notice.message ? <p className={`text-sm ${notice.type === "error" ? "text-[#A33B32]" : "text-[#236644]"}`} role={notice.type === "error" ? "alert" : "status"}>{notice.message}</p> : null}<button className="min-h-11 rounded-lg bg-[#1C6B4A] px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={busy} type="submit">{busy ? "Menyimpan…" : "Simpan perubahan"}</button></form>
+        <form className="mt-4 space-y-4" onSubmit={(event) => void save(event)}><div className="grid gap-4 sm:grid-cols-2"><Field label="Nama pemilik" required><input className={inputClass} maxLength={255} onChange={(event) => setValues({ ...values, name: event.target.value })} required value={values.name} /></Field><Field label="Email"><input className={`${inputClass} bg-[#F5F7F1]`} readOnly value={profile.email} /></Field></div><Field label="Nomor kontak" required><input className={inputClass} maxLength={20} onChange={(event) => setValues({ ...values, phone: event.target.value })} required value={values.phone} /></Field><Field label="Nama usaha" required><input className={inputClass} maxLength={160} onChange={(event) => setValues({ ...values, business_name: event.target.value })} required value={values.business_name} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Jenis usaha" required><input className={inputClass} maxLength={80} onChange={(event) => setValues({ ...values, business_type: event.target.value })} required value={values.business_type} /></Field><Field label="Kecamatan" required><select className={inputClass} disabled={referenceStatus.type !== "ready"} onChange={(event) => setValues({ ...values, district: event.target.value })} value={values.district}>{profileDistricts.map((district) => <option key={district.key} value={district.key}>{district.label}</option>)}</select></Field></div><Field label="Alamat pickup" required><textarea className={`${inputClass} min-h-24 py-2`} maxLength={1000} onChange={(event) => setValues({ ...values, business_address: event.target.value })} required value={values.business_address} /></Field><Field label="Ganti foto usaha" hint="Opsional · JPG, PNG, atau WebP, maks. 5 MB"><input accept="image/jpeg,image/png,image/webp" className="block min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 py-2 text-sm font-normal file:mr-3 file:rounded-md file:border-0 file:bg-[#E6F3E9] file:px-3 file:py-1 file:font-semibold file:text-[#236644]" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} type="file" />{proofFile ? <span className="mt-1 block text-xs font-normal text-[#63756B]">Berkas baru: {proofFile.name}</span> : null}</Field>{notice.message ? <p className={`text-sm ${notice.type === "error" ? "text-[#A33B32]" : "text-[#236644]"}`} role={notice.type === "error" ? "alert" : "status"}>{notice.message}</p> : null}<button className="min-h-11 rounded-lg bg-[#1C6B4A] px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={busy} type="submit">{busy ? "Menyimpan…" : "Simpan perubahan"}</button></form>
         </AdminPanel><div className="space-y-5"><AdminPanel title="Status pemeriksaan"><div className="mt-3 flex items-center gap-3"><StateBadge status={profile.verification.status === "verified" ? "completed" : profile.verification.status} /><span className="text-sm font-medium">{profile.verification.status === "verified" ? "Usaha terverifikasi" : profile.verification.status === "rejected" ? "Perlu perbaikan" : "Menunggu verifikasi"}</span></div><p className="mt-3 text-sm leading-6 text-[#63756B]">{profile.verification.reason || (profile.verification.status === "verified" ? `Terverifikasi ${formatDateTime(profile.verification.verified_at)}.` : "Admin akan meninjau informasi usaha dan foto yang dikirim saat pendaftaran.")}</p>{profile.verification.status !== "verified" ? <p className="mt-4 rounded-lg bg-[#F5F7F1] p-3 text-sm leading-6 text-[#63756B]">Posting listing akan tersedia setelah verifikasi disetujui.</p> : null}</AdminPanel><AdminPanel title="Dokumen usaha"><div className="mt-3 flex items-center gap-2 text-sm text-[#52645A]"><FileText size={17} className="text-[#1C6B4A]" />{profile.proof_submitted ? "Foto usaha sudah diterima" : "Dokumen belum tersedia"}</div><p className="mt-2 text-xs leading-5 text-[#829187]">Dokumen sensitif tidak ditampilkan di halaman publik.</p></AdminPanel><AdminPanel title="Persetujuan UMKM"><p className="mt-3 text-sm text-[#52645A]">{profile.terms?.accepted_at ? `Versi ${profile.terms.version} · disetujui ${formatDateTime(profile.terms.accepted_at)}` : "Ketentuan akan diminta sebelum posting pertama."}</p></AdminPanel><AdminPanel title="Kontak akun"><p className="mt-3 break-all text-sm text-[#52645A]">{profile.email}</p><p className="mt-1 text-sm text-[#52645A]">{profile.phone}</p></AdminPanel></div></div>
     </> : null}
   </UmkmPage>;
@@ -336,7 +396,7 @@ export function UmkmProfilePage() {
 
 export function UmkmImpactPage() {
   const { refresh } = useAuth();
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(currentJakartaMonth);
   const resource = useApiResource(`/api/umkm/impact?month=${month}`, refresh);
   const report = resource.data;
   const max = Math.max(1, ...(report?.weekly_portions ?? []).map((week) => week.portions));

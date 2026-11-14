@@ -43,6 +43,14 @@ class AuthenticationTest extends TestCase
             ->assertJsonMissingPath('user');
     }
 
+    public function test_unauthenticated_browser_request_to_api_returns_json_instead_of_redirecting_to_login(): void
+    {
+        $this->withHeader('Accept', 'text/html')
+            ->get('/api/admin/verifications/4/document')
+            ->assertUnauthorized()
+            ->assertJsonPath('message', 'Unauthenticated.');
+    }
+
     public function test_invalid_credentials_do_not_create_a_session(): void
     {
         User::factory()->create([

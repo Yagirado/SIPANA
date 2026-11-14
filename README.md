@@ -79,7 +79,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-`pnpm dev:api` menjalankan `php artisan serve`; `pnpm dev:web` menjalankan Vite. Skrip web tambahan:
+`pnpm dev:api` menjalankan server API dan scheduler Laravel; `pnpm dev:web` menjalankan Vite. Di production, jalankan scheduler Laravel setiap menit dengan cron atau task scheduler server (`php artisan schedule:run`). Skrip web tambahan:
 
 ```bash
 pnpm --filter @sipana/web build

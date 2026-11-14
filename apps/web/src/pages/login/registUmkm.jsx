@@ -8,8 +8,8 @@ import {
   primaryButtonClass,
 } from "../../components/auth-layout.jsx";
 import { apiRequest } from "../../lib/api.js";
+import { useReferenceData } from "../../lib/use-reference-data.js";
 
-const districts = ["Karawang Barat", "Telukjambe Timur", "Karawang Timur"];
 const businessTypes = [
   "Warung makan",
   "Toko roti dan kue",
@@ -35,6 +35,7 @@ function validateFile(file, label) {
 
 export default function RegisUmkm() {
   const navigate = useNavigate();
+  const { data: referenceData, status: referenceStatus } = useReferenceData();
   const [values, setValues] = useState({
     owner: "",
     email: "",
@@ -281,6 +282,7 @@ export default function RegisUmkm() {
                   className={`${authControlClass} ${values.district ? "" : "text-[#829187]"}`}
                   id="district"
                   name="district"
+                  disabled={referenceStatus.type !== "ready"}
                   onChange={updateField}
                   value={values.district}
                   aria-invalid={Boolean(errors.district)}
@@ -289,12 +291,13 @@ export default function RegisUmkm() {
                   }
                 >
                   <option value="">Pilih kecamatan</option>
-                  {districts.map((district) => (
-                    <option key={district} value={district}>
-                      {district}
+                  {referenceData.listing_districts.map((district) => (
+                    <option key={district.key} value={district.key}>
+                      {district.label}
                     </option>
                   ))}
                 </select>
+                {referenceStatus.type === "error" ? <p className="mt-1 text-sm text-[#A33B32]" role="alert">Daftar kecamatan belum dapat dimuat. Muat ulang halaman.</p> : null}
               </AuthField>
 
               <AuthField

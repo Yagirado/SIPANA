@@ -16,7 +16,7 @@ class RegistrationController extends Controller
     public function registerUmkm(RegisterUmkmRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $proofPath = $request->file('business_proof')->store('umkm/business-proofs', 'local');
+        $proofPath = $request->file('business_proof')->store('umkm/business-proofs', 'b2-documents');
 
         if (! $proofPath) {
             return response()->json(['message' => 'Foto usaha gagal disimpan. Coba unggah kembali.'], 500);
@@ -43,7 +43,7 @@ class RegistrationController extends Controller
                 return $user;
             });
         } catch (Throwable $exception) {
-            Storage::disk('local')->delete($proofPath);
+            Storage::disk('b2-documents')->delete($proofPath);
             throw $exception;
         }
 

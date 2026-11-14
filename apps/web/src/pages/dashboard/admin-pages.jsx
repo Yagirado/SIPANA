@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, CalendarDays, MapPin, Search } from "lucide-react";
+import { ArrowDownToLine, CalendarDays, MapPin, RefreshCw, Search } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useAuth } from "../../auth/use-auth.js";
-import { apiRequest } from "../../lib/api.js";
+import { apiDownload, apiRequest } from "../../lib/api.js";
 import {
   AdminBackLink,
   AdminPage,
   AdminPageHeading,
   AdminPanel,
-  AdminUnavailable,
 } from "../../components/dashboard/admin-ui.jsx";
 import { DashboardState } from "../../components/dashboard/dashboard-state.jsx";
 
@@ -21,27 +20,15 @@ function AdminDataPage({ title, heading, description, children }) {
   );
 }
 
-function EmptyTable({ columns, message }) {
-  return (
-    <div className="mt-5 overflow-hidden rounded-xl border border-[#E5EBE4]">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="bg-[#F5F7F1] text-[11px] font-semibold uppercase tracking-wide text-[#63756B]">
-            <tr>
-              {columns.map((column) => <th className="px-4 py-3" key={column}>{column}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="px-4 py-8" colSpan={columns.length}>
-                <p className="text-center text-sm text-[#63756B]">{message}</p>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+function currentJakartaMonth() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return `${year}-${month}`;
 }
 
 export function AdminVerificationQueue() {
@@ -147,22 +134,56 @@ export function AdminVerificationDetail() {
   );
 }
 
+const reportCategoryLabels = {
+  food_safety: "Keamanan pangan",
+  misrepresentation: "Informasi tidak sesuai",
+  inappropriate_behavior: "Perilaku tidak pantas",
+  other: "Lainnya",
+};
+
+function reportStatusLabel(status) {
+  return ({ open: "Menunggu tinjau", under_review: "Sedang ditinjau", awaiting_response: "Menunggu jawaban", resolved_no_action: "Tanpa tindakan", resolved_action: "Keputusan dibuat", appealed: "Banding masuk", appeal_resolved: "Banding diputus" })[status] ?? status;
+}
+
+function formatReportDate(value, withTime = true) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("id-ID", withTime
+    ? { dateStyle: "medium", timeStyle: "short" }
+    : { dateStyle: "medium" });
+}
+
 export function AdminReportQueue() {
+  const { refresh } = useAuth();
+  const [page, setPage] = useState(1);
+  const [reload, setReload] = useState(0);
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState({ type: "loading", message: "" });
+
+  useEffect(() => {
+    let active = true;
+    apiRequest(`/api/admin/reports?page=${page}`).then((data) => {
+      if (active) { setResult(data); setStatus({ type: "ready", message: "" }); }
+    }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setStatus({ type: "error", message: error.message });
+    });
+    return () => { active = false; };
+  }, [page, refresh, reload]);
+
   return (
     <AdminDataPage
       title="Laporan masuk"
       heading="Laporan masuk"
-      description="Tinjau laporan keamanan pangan dan ketidaksesuaian dengan menjaga identitas pelapor."
+      description="Tinjau laporan keamanan pangan dan ketidaksesuaian. Identitas pelapor tetap dirahasiakan."
     >
-      <AdminPanel>
-        <AdminUnavailable
-          title="Antrean laporan belum tersambung"
-          description="API laporan dan moderasi belum tersedia. Tidak ada aduan, bukti, atau status yang dapat ditampilkan saat ini."
-        />
-        <EmptyTable
-          columns={["ID laporan", "Objek", "Kategori", "Diterima", "Status", ""]}
-          message="Belum ada laporan dari server."
-        />
+      <div className="flex justify-end"><button className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 text-sm font-semibold text-[#52645A] hover:bg-[#F5F7F1]" onClick={() => setReload((value) => value + 1)} type="button"><RefreshCw aria-hidden="true" size={15} />Muat ulang</button></div>
+      <AdminPanel title="Antrean laporan" description="Laporan terbaru dari warga dan UMKM.">
+        {status.type === "loading" ? <div className="mt-4"><DashboardState title="Memuat laporan" description="Mengambil antrean laporan…" tone="loading" compact /></div> : null}
+        {status.type === "error" ? <div className="mt-4"><DashboardState title="Laporan belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((value) => value + 1)} tone="error" compact /></div> : null}
+        {status.type === "ready" && result?.data?.length ? <div className="mt-5 overflow-x-auto rounded-xl border border-[#E5EBE4]"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-[#F5F7F1] text-[11px] font-semibold uppercase tracking-wide text-[#63756B]"><tr>{["ID laporan", "Listing / usaha", "Kategori", "Diterima", "Status", ""].map((column) => <th className="px-4 py-3" key={column}>{column}</th>)}</tr></thead><tbody className="divide-y divide-[#E8EEE7]">{result.data.map((report) => <tr key={report.id}><td className="px-4 py-4 font-semibold">#{report.id}</td><td className="px-4 py-4"><p className="font-semibold text-[#183A2E]">{report.target_title || (report.target_type === "claim" ? "Klaim" : "Listing")}</p><p className="mt-1 text-xs text-[#63756B]">{report.business_name || "Usaha"}{report.district ? ` · ${report.district}` : ""}</p></td><td className="px-4 py-4">{reportCategoryLabels[report.category] ?? report.category}</td><td className="px-4 py-4">{formatReportDate(report.created_at)}</td><td className="px-4 py-4"><span className="rounded-full bg-[#FFF3D8] px-3 py-1.5 text-xs font-semibold text-[#795D23]">{reportStatusLabel(report.status)}</span></td><td className="px-4 py-4"><Link className="font-semibold text-[#1C6B4A] hover:underline" to={`/dashboard/admin/laporan/${report.id}`}>Tinjau</Link></td></tr>)}</tbody></table></div> : null}
+        {status.type === "ready" && !result?.data?.length ? <p className="mt-4 rounded-xl bg-[#F5F7F1] p-5 text-sm text-[#63756B]">Belum ada laporan masuk.</p> : null}
+        {status.type === "ready" && result?.last_page > 1 ? <div className="mt-4 flex items-center justify-between gap-3"><p className="text-sm text-[#63756B]">Halaman {result.current_page} dari {result.last_page}</p><div className="flex gap-2"><button className="min-h-10 rounded-lg border border-[#DDE5DC] px-3 text-sm font-semibold disabled:opacity-50" disabled={!result.prev_page_url} onClick={() => setPage((value) => value - 1)} type="button">Sebelumnya</button><button className="min-h-10 rounded-lg border border-[#DDE5DC] px-3 text-sm font-semibold disabled:opacity-50" disabled={!result.next_page_url} onClick={() => setPage((value) => value + 1)} type="button">Berikutnya</button></div></div> : null}
       </AdminPanel>
     </AdminDataPage>
   );
@@ -170,26 +191,75 @@ export function AdminReportQueue() {
 
 export function AdminReportDetail() {
   const { reportId } = useParams();
+  const { refresh } = useAuth();
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "loading", message: "" });
+
+  useEffect(() => {
+    let active = true;
+    apiRequest(`/api/admin/reports/${reportId}`).then((data) => {
+      if (active) { setReport(data); setStatus({ type: "ready", message: "" }); }
+    }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setStatus({ type: "error", message: error.message });
+    });
+    return () => { active = false; };
+  }, [reportId, refresh]);
 
   return (
     <AdminDataPage
       title="Tinjau laporan"
       heading={`Tinjau laporan ${reportId}`}
-      description="Tinjau laporan dan pilih tindakan yang sesuai kebijakan SIPANA."
+      description="Periksa detail laporan tanpa menampilkan identitas pelapor."
     >
       <AdminBackLink to="/dashboard/admin/laporan">Kembali ke laporan</AdminBackLink>
-      <AdminPanel>
-        <AdminUnavailable
-          title="Detail laporan belum dapat dimuat"
-          description="API detail laporan, bukti, dan riwayat moderasi belum tersedia. Peringatan, penangguhan, pemulihan, dan penghapusan memerlukan endpoint serta aturan keputusan yang tercatat."
-        />
-      </AdminPanel>
+      {status.type === "loading" ? <DashboardState title="Memuat detail laporan" description="Mengambil informasi listing dan laporan…" tone="loading" /> : null}
+      {status.type === "error" ? <DashboardState title="Detail laporan tidak dapat dimuat" description={status.message} tone="error" /> : null}
+      {report ? <AdminPanel title={report.target_title || (report.target_type === "claim" ? "Laporan klaim" : "Laporan listing")} description={report.business_name || "Informasi usaha tidak tersedia"}>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2"><div><dt className="text-sm text-[#63756B]">Kategori</dt><dd className="mt-1 font-semibold">{reportCategoryLabels[report.category] ?? report.category}</dd></div><div><dt className="text-sm text-[#63756B]">Status</dt><dd className="mt-1 font-semibold">{reportStatusLabel(report.status)}</dd></div><div><dt className="text-sm text-[#63756B]">Diterima</dt><dd className="mt-1 font-semibold">{formatReportDate(report.created_at)}</dd></div><div><dt className="text-sm text-[#63756B]">Kecamatan</dt><dd className="mt-1 font-semibold">{report.district || "—"}</dd></div><div className="sm:col-span-2"><dt className="text-sm text-[#63756B]">Keterangan pelapor</dt><dd className="mt-1 whitespace-pre-wrap rounded-xl bg-[#F5F7F1] p-4 text-sm leading-6 text-[#364D41]">{report.description || "Pelapor tidak menambahkan keterangan."}</dd></div></dl>
+      </AdminPanel> : null}
     </AdminDataPage>
   );
 }
 
 export function AdminImpactRecap() {
-  const metrics = ["Listing terbit", "Klaim dibuat", "Serah terima selesai", "Rasio selesai"];
+  const { refresh } = useAuth();
+  const [month, setMonth] = useState(currentJakartaMonth);
+  const [district, setDistrict] = useState("");
+  const [districts, setDistricts] = useState([]);
+  const [districtError, setDistrictError] = useState("");
+  const [districtReload, setDistrictReload] = useState(0);
+  const [impact, setImpact] = useState(null);
+  const [status, setStatus] = useState({ type: "loading", message: "" });
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let active = true;
+    apiRequest("/api/reference-data").then((data) => {
+      if (active) {
+        setDistricts(data.listing_districts ?? []);
+        setDistrictError("");
+      }
+    }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setDistrictError(error.message || "Daftar kecamatan gagal dimuat.");
+    });
+    return () => { active = false; };
+  }, [districtReload, refresh]);
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams({ month });
+    if (district) params.set("district", district);
+    apiRequest("/api/admin/impact?" + params).then((data) => { if (active) { setImpact(data); setStatus({ type: "ready", message: "" }); } }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setStatus({ type: "error", message: error.message });
+    });
+    return () => { active = false; };
+  }, [district, month, refresh, reload]);
+  const metrics = ["Listing terbit", "Klaim dibuat", "Serah terima selesai", "Porsi tersalurkan"];
+  const metricValues = [impact?.published_listings ?? 0, impact?.claims ?? 0, impact?.completed_handovers ?? 0, impact?.portions_distributed ?? 0];
 
   return (
     <AdminDataPage
@@ -197,53 +267,107 @@ export function AdminImpactRecap() {
       heading="Rekap dampak SIPANA"
       description="Pantau serah terima yang selesai menurut periode dan kecamatan."
       >
-      <div className="flex flex-wrap gap-3 text-sm">
-        <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 text-[#63756B]"><CalendarDays aria-hidden="true" size={16} /> Periode belum tersedia</span>
-        <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 text-[#63756B]"><MapPin aria-hidden="true" size={16} /> Semua kecamatan</span>
+      <div className="flex flex-wrap items-end gap-3 text-sm">
+        <label className="text-sm font-semibold text-[#364D41]">Bulan<span className="mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 font-normal text-[#63756B]"><CalendarDays aria-hidden="true" size={16} /><input className="bg-transparent outline-none" onChange={(event) => setMonth(event.target.value)} type="month" value={month} /></span></label>
+        <label className="text-sm font-semibold text-[#364D41]">Kecamatan<span className="mt-2 flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 font-normal text-[#63756B]"><MapPin aria-hidden="true" size={16} /><select className="bg-transparent outline-none" onChange={(event) => setDistrict(event.target.value)} value={district}><option value="">Semua kecamatan</option>{districts.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></span></label>
+        <button className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#DDE5DC] bg-white px-3 font-semibold text-[#52645A]" onClick={() => setReload((value) => value + 1)} type="button"><RefreshCw aria-hidden="true" size={15} />Muat ulang</button>
         <Link className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#1C6B4A] px-4 font-semibold text-white hover:bg-[#183A2E] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C6B4A]" to="/dashboard/admin/ekspor"><ArrowDownToLine aria-hidden="true" size={16} /> Ekspor data</Link>
       </div>
+      {districtError ? <p aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#F0DCA8] bg-[#FFF6E2] px-4 py-3 text-sm text-[#795D23]" role="alert">Daftar kecamatan gagal dimuat ({districtError}). Rekap saat ini mencakup semua kecamatan.<button className="min-h-9 rounded-lg border border-[#D8BD78] px-3 font-semibold" onClick={() => setDistrictReload((value) => value + 1)} type="button">Coba muat ulang</button></p> : null}
+      {status.type === "loading" ? <DashboardState title="Memuat rekap dampak" description="Menghitung listing dan serah terima…" tone="loading" compact /> : null}
+      {status.type === "error" ? <DashboardState title="Rekap dampak belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((value) => value + 1)} tone="error" compact /> : null}
+      {status.type === "ready" ? <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
+        {metrics.map((metric, index) => (
           <AdminPanel className="min-h-28" key={metric}>
             <p className="text-sm text-[#63756B]">{metric}</p>
-            <p className="mt-3 text-xl font-bold text-[#829187]" aria-label={`${metric}: data belum tersedia`}>—</p>
+            <p className="mt-3 text-xl font-bold text-[#183A2E]">{Number(metricValues[index]).toLocaleString("id-ID")}</p>
           </AdminPanel>
         ))}
       </div>
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
-        <AdminPanel title="Tren serah terima" description="Perubahan jumlah serah terima per minggu.">
-          <div className="mt-5"><AdminUnavailable title="Grafik belum tersedia" description="Data klaim dan serah terima belum tersambung." /></div>
+        <AdminPanel title="Porsi tersalurkan per minggu" description="Porsi dari klaim yang selesai pada setiap pekan dalam bulan terpilih.">
+          <div className="mt-5 space-y-3">{(impact?.weekly_portions ?? []).map((item) => <div className="grid grid-cols-[5rem_1fr_5rem] items-center gap-3 text-sm" key={item.week}><span className="text-[#63756B]">Minggu {item.week}</span><div className="h-2 overflow-hidden rounded-full bg-[#E8EEE7]"><div className="h-full rounded-full bg-[#1C6B4A]" style={{ width: Math.min(100, impact?.portions_distributed ? item.portions / impact.portions_distributed * 100 : 0) + "%" }} /></div><span className="text-right font-semibold">{Number(item.portions).toLocaleString("id-ID")} porsi</span></div>)}</div>
         </AdminPanel>
         <AdminPanel title="Rincian kecamatan" description="Rekap berdasarkan wilayah layanan.">
-          <div className="mt-5"><AdminUnavailable title="Rincian belum tersedia" description="Data per kecamatan akan muncul setelah API dampak tersedia." /></div>
+          {(impact?.district_breakdown ?? []).length ? <div className="mt-4 divide-y divide-[#E8EEE7]">{impact.district_breakdown.map((item) => <div className="flex items-center justify-between gap-3 py-3 text-sm" key={item.key}><span className="font-medium">{item.label}</span><span className="text-right text-[#63756B]">{item.handovers} serah terima · {Number(item.portions).toLocaleString("id-ID")} porsi</span></div>)}</div> : <p className="mt-4 rounded-xl bg-[#F5F7F1] p-4 text-sm text-[#63756B]">Belum ada serah terima selesai pada periode ini.</p>}
         </AdminPanel>
       </div>
-      <p className="rounded-xl border border-[#F0DCA8] bg-[#FFF6E2] px-4 py-3 text-sm leading-6 text-[#795D23]">Total porsi dan kilogram tidak ditampilkan sebelum cara konversi porsi ke berat ditetapkan.</p>
+      <p className="rounded-xl border border-[#F0DCA8] bg-[#FFF6E2] px-4 py-3 text-sm leading-6 text-[#795D23]">Dampak dihitung dari klaim yang sudah dikonfirmasi selesai. Satu listing yang diklaim utuh dihitung sesuai jumlah porsinya.</p>
+      </> : null}
     </AdminDataPage>
   );
 }
 
 export function AdminExportPage() {
+  const { refresh } = useAuth();
+  const [month, setMonth] = useState(currentJakartaMonth);
+  const [district, setDistrict] = useState("");
+  const [districts, setDistricts] = useState([]);
+  const [loadingDistricts, setLoadingDistricts] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState({ type: "", message: "" });
+
+  useEffect(() => {
+    let active = true;
+    apiRequest("/api/reference-data").then((data) => {
+      if (active) setDistricts(data.listing_districts ?? []);
+    }).catch((error) => {
+      if (active && (error.status === 401 || error.status === 403)) void refresh();
+      else if (active) setNotice({ type: "error", message: error.message });
+    }).finally(() => { if (active) setLoadingDistricts(false); });
+    return () => { active = false; };
+  }, [refresh]);
+
+  async function downloadCsv() {
+    if (busy || !month) return;
+    setBusy(true);
+    setNotice({ type: "", message: "" });
+    try {
+      const params = new URLSearchParams({ month });
+      if (district) params.set("district", district);
+      const blob = await apiDownload(`/api/admin/impact/export?${params}`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `rekap-dampak-${month}${district ? `-${district}` : ""}.csv`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice({ type: "success", message: "Berkas CSV berhasil diunduh." });
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setNotice({ type: "error", message: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AdminDataPage
       title="Ekspor rekap dampak"
       heading="Ekspor rekap dampak"
-      description="Unduh data terstruktur sesuai periode dan kecamatan setelah data tersedia."
+      description="Unduh aktivitas listing, klaim, dan serah terima sesuai bulan dan kecamatan."
     >
       <AdminBackLink to="/dashboard/admin/dampak">Kembali ke rekap dampak</AdminBackLink>
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <AdminPanel title="Atur ekspor">
-          <div className="mt-5"><AdminUnavailable title="Ekspor belum tersedia" description="Belum ada endpoint laporan yang dapat menghasilkan CSV. Filter dan berkas ekspor akan diaktifkan saat data dampak tersedia." /></div>
-          <button className="mt-5 inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-[#8AA99A] px-4 text-sm font-semibold text-white" disabled type="button"><ArrowDownToLine aria-hidden="true" size={17} /> Unduh CSV</button>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="text-sm font-semibold text-[#364D41]">Bulan<span className="mt-2 flex min-h-11 items-center rounded-lg border border-[#DDE5DC] bg-white px-3 font-normal"><input className="w-full bg-transparent outline-none" onChange={(event) => setMonth(event.target.value)} type="month" value={month} /></span></label>
+            <label className="text-sm font-semibold text-[#364D41]">Kecamatan<span className="mt-2 flex min-h-11 items-center rounded-lg border border-[#DDE5DC] bg-white px-3 font-normal"><select className="w-full bg-transparent outline-none" disabled={loadingDistricts} onChange={(event) => setDistrict(event.target.value)} value={district}><option value="">Semua kecamatan</option>{districts.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></span></label>
+          </div>
+          {notice.message ? <p aria-live="polite" className={`mt-4 rounded-lg p-3 text-sm ${notice.type === "error" ? "bg-[#FFF0EE] text-[#A33B32]" : "bg-[#E6F3E9] text-[#236644]"}`}>{notice.message}</p> : null}
+          <button className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1C6B4A] px-4 text-sm font-semibold text-white hover:bg-[#183A2E] disabled:cursor-wait disabled:opacity-60" disabled={busy || !month || loadingDistricts} onClick={() => void downloadCsv()} type="button"><ArrowDownToLine aria-hidden="true" size={17} /> {busy ? "Menyiapkan CSV…" : "Unduh CSV"}</button>
         </AdminPanel>
         <AdminPanel title="Data yang disertakan">
           <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-[#52645A]">
-            <li>Ringkasan listing</li>
+            <li>Judul listing, usaha, dan peruntukan</li>
             <li>Periode dan kecamatan</li>
-            <li>Rekap klaim dan serah terima</li>
-            <li>Waktu ekspor</li>
+            <li>Status listing, klaim, dan serah terima selesai</li>
+            <li>Jumlah porsi tersalurkan dan waktu ekspor</li>
           </ul>
-          <p className="mt-6 rounded-xl bg-[#F5F7F1] p-4 text-sm leading-6 text-[#63756B]">Ekspor hanya akan memuat data agregat sesuai filter yang dipilih.</p>
+          <p className="mt-6 rounded-xl bg-[#F5F7F1] p-4 text-sm leading-6 text-[#63756B]">Berkas berisi satu baris per listing yang memiliki aktivitas pada bulan terpilih. Informasi pribadi penerima tidak disertakan.</p>
         </AdminPanel>
       </div>
     </AdminDataPage>
@@ -251,15 +375,35 @@ export function AdminExportPage() {
 }
 
 export function AdminAuditLog() {
+  const { refresh } = useAuth();
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState({ type: "loading", message: "" });
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let active = true;
+    apiRequest("/api/admin/audit-logs?page=" + page).then((data) => {
+      if (active) { setResult(data); setStatus({ type: "ready", message: "" }); }
+    }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setStatus({ type: "error", message: error.message });
+    });
+    return () => { active = false; };
+  }, [page, refresh, reload]);
   return (
     <AdminDataPage
       title="Audit log"
       heading="Audit log"
       description="Riwayat keputusan verifikasi, moderasi, dan perubahan status."
     >
-      <AdminPanel>
-        <AdminUnavailable title="Audit log belum tersedia" description="Belum ada API atau penyimpanan untuk mencatat aktor, waktu, entitas, tindakan, dan alasan keputusan admin." />
-        <EmptyTable columns={["Waktu", "Aktor", "Tindakan", "Entitas", "Alasan"]} message="Belum ada aktivitas admin yang tersimpan." />
+      <AdminPanel title="Aktivitas administrator" description="Aktivitas tercatat sejak audit log diaktifkan. Perubahan kecamatan/peruntukan dan keputusan verifikasi disimpan beserta nilai sebelum dan sesudah.">
+        {status.type === "loading" ? <div className="mt-4"><DashboardState title="Memuat audit log" description="Mengambil aktivitas admin…" tone="loading" compact /></div> : null}
+        {status.type === "error" ? <div className="mt-4"><DashboardState title="Audit log belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((value) => value + 1)} tone="error" compact /></div> : null}
+        {status.type === "ready" ? <>
+          {result?.data?.length ? <div className="mt-5 overflow-x-auto rounded-xl border border-[#E5EBE4]"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#F5F7F1] text-[11px] font-semibold uppercase tracking-wide text-[#63756B]"><tr>{["Waktu", "Aktor", "Tindakan", "Entitas", "Perubahan", "Alasan"].map((column) => <th className="px-4 py-3" key={column}>{column}</th>)}</tr></thead><tbody className="divide-y divide-[#E8EEE7]">{result.data.map((log) => <tr key={log.id}><td className="whitespace-nowrap px-4 py-3">{new Date(log.created_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</td><td className="px-4 py-3">{log.actor_name || "Admin dihapus"}</td><td className="px-4 py-3 font-medium">{log.action.replaceAll("_", " ").replaceAll(".", " · ")}</td><td className="px-4 py-3">{log.entity_type} #{log.entity_id}</td><td className="max-w-sm whitespace-pre-wrap px-4 py-3 text-xs text-[#63756B]">{log.before || log.after ? <details><summary className="cursor-pointer font-semibold text-[#1C6B4A]">Lihat nilai</summary><pre className="mt-2 whitespace-pre-wrap">{JSON.stringify({ sebelum: log.before, sesudah: log.after }, null, 2)}</pre></details> : "—"}</td><td className="max-w-xs whitespace-pre-wrap px-4 py-3 text-[#63756B]">{log.reason || "—"}</td></tr>)}</tbody></table></div> : <p className="mt-4 rounded-xl bg-[#F5F7F1] p-5 text-sm text-[#63756B]">Belum ada aktivitas admin yang tersimpan.</p>}
+          {result?.last_page > 1 ? <div className="mt-4 flex items-center justify-between gap-3"><p className="text-sm text-[#63756B]">Halaman {result.current_page} dari {result.last_page} · {result.total} aktivitas</p><div className="flex gap-2"><button className="min-h-10 rounded-lg border border-[#DDE5DC] px-3 text-sm font-semibold disabled:opacity-50" disabled={!result.prev_page_url} onClick={() => setPage((value) => value - 1)} type="button">Sebelumnya</button><button className="min-h-10 rounded-lg border border-[#DDE5DC] px-3 text-sm font-semibold disabled:opacity-50" disabled={!result.next_page_url} onClick={() => setPage((value) => value + 1)} type="button">Berikutnya</button></div></div> : null}
+        </> : null}
       </AdminPanel>
     </AdminDataPage>
   );
@@ -395,7 +539,7 @@ export function AdminPlatformMetrics() {
     <AdminDataPage
       title="Metrik platform"
       heading="Metrik platform"
-      description="Ringkasan akun dihitung langsung dari basis data SIPANA. Metrik listing, klaim, dan serah terima belum tersedia."
+      description="Ringkasan akun, listing, klaim, laporan, dan serah terima dihitung langsung dari basis data SIPANA."
     >
       {status.type === "loading" ? <DashboardState title="Memuat metrik" description="Menghitung akun terdaftar dari server SIPANA…" tone="loading" /> : null}
       {status.type === "error" ? <DashboardState title="Metrik belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((current) => current + 1)} tone="error" /> : null}
@@ -407,26 +551,90 @@ export function AdminPlatformMetrics() {
         </div>
         <p className="text-xs text-[#829187]">Data diperbarui {new Date(metrics.generated_at).toLocaleString("id-ID")}.</p>
       </> : null}
-      <AdminPanel title="Metrik operasional" description="Metrik berikut mengikuti sumber data transaksi SIPANA.">
-        <div className="mt-5"><AdminUnavailable title="Data listing dan serah terima belum tersedia" description="Ringkasan porsi, listing, klaim, dan serah terima memerlukan modul listing dan klaim pada backend." /></div>
-      </AdminPanel>
+      {status.type === "ready" ? <AdminPanel title="Metrik operasional" description="Jumlah status listing dan klaim saat ini, serta porsi dari serah terima yang sudah selesai.">
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Total listing", metrics.listings?.total], ["Listing aktif", metrics.listings?.published], ["Total klaim", metrics.claims?.total], ["Klaim selesai", metrics.claims?.completed], ["Laporan terbuka", metrics.open_reports], ["Verifikasi menunggu", metrics.pending_verifications], ["Porsi disalurkan", metrics.listings?.portions_distributed]].map(([label, value]) => <div className="rounded-xl bg-[#F5F7F1] p-4" key={label}><p className="text-sm text-[#63756B]">{label}</p><p className="mt-2 text-2xl font-bold text-[#183A2E]">{Number(value ?? 0).toLocaleString("id-ID")}</p></div>)}</div>
+        <div className="mt-4 flex flex-wrap gap-2">{Object.entries(metrics.listings ?? {}).filter(([key, value]) => !["total", "portions_distributed", "by_district"].includes(key) && ["string", "number"].includes(typeof value)).map(([key, value]) => <span className="rounded-full bg-[#F5F7F1] px-3 py-1.5 text-xs text-[#52645A]" key={"listing-" + key}>Listing {key}: {value}</span>)}{Object.entries(metrics.claims ?? {}).filter(([key, value]) => key !== "total" && ["string", "number"].includes(typeof value)).map(([key, value]) => <span className="rounded-full bg-[#F5F7F1] px-3 py-1.5 text-xs text-[#52645A]" key={"claim-" + key}>Klaim {key}: {value}</span>)}</div>
+      </AdminPanel> : null}
     </AdminDataPage>
   );
 }
 
 export function AdminMasterData() {
+  const { refresh } = useAuth();
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState({ type: "loading", message: "" });
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [notice, setNotice] = useState({ type: "", message: "" });
+  const [newItem, setNewItem] = useState({ type: "district", label: "", available_for_listings: true });
+  useEffect(() => {
+    let active = true;
+    apiRequest("/api/admin/master-data").then((data) => { if (active) { setItems(data); setStatus({ type: "ready", message: "" }); } }).catch((error) => {
+      if (!active) return;
+      if (error.status === 401 || error.status === 403) { void refresh(); return; }
+      setStatus({ type: "error", message: error.message });
+    });
+    return () => { active = false; };
+  }, [refresh, reload]);
+
+  async function createItem(event) {
+    event.preventDefault(); setBusy(true); setNotice({ type: "", message: "" });
+    try {
+      const result = await apiRequest("/api/admin/master-data", { method: "POST", body: newItem });
+      setNotice({ type: "success", message: result.message });
+      setNewItem((value) => ({ ...value, label: "" }));
+      setReload((value) => value + 1);
+    } catch (error) { setNotice({ type: "error", message: error.message }); }
+    finally { setBusy(false); }
+  }
+
+  async function saveItem(item) {
+    setBusyId(item.id); setNotice({ type: "", message: "" });
+    try {
+      const result = await apiRequest("/api/admin/master-data/" + item.id, { method: "PUT", body: { label: item.label, is_active: item.is_active, available_for_listings: item.available_for_listings } });
+      setNotice({ type: "success", message: result.message }); setReload((value) => value + 1);
+    } catch (error) { setNotice({ type: "error", message: error.message }); }
+    finally { setBusyId(null); }
+  }
+
+  async function deleteItem(item) {
+    setBusyId(item.id); setNotice({ type: "", message: "" });
+    try {
+      const result = await apiRequest("/api/admin/master-data/" + item.id, { method: "DELETE" });
+      setNotice({ type: "success", message: result.message }); setReload((value) => value + 1);
+    } catch (error) { setNotice({ type: "error", message: error.message }); }
+    finally { setBusyId(null); }
+  }
+
+  function updateItem(itemId, field, value) {
+    setItems((current) => current.map((item) => item.id === itemId ? { ...item, [field]: value } : item));
+  }
+
   return (
     <AdminDataPage
       title="Data master"
       heading="Pengelolaan data master"
-      description="Referensi kecamatan, kategori pangan, dan ketentuan keamanan."
+      description="Kelola daftar kecamatan dan peruntukan listing. Referensi yang sedang dipakai hanya dapat dinonaktifkan."
     >
-      <AdminPanel>
-        <AdminUnavailable
-          title="Data master belum dapat diubah"
-          description="API data master belum tersedia. Daftar kecamatan, kategori makanan, dan teks ketentuan tetap berasal dari konfigurasi yang ada sampai sumber pengelolaan beserta proses revisinya ditetapkan."
-        />
+      <AdminPanel title="Tambah referensi">
+        <form className="mt-4 grid gap-3 sm:grid-cols-[12rem_1fr_auto]" onSubmit={(event) => void createItem(event)}>
+          <select aria-label="Jenis referensi" className="min-h-11 rounded-lg border border-[#D2DDD2] bg-white px-3 text-sm" onChange={(event) => setNewItem((value) => ({ ...value, type: event.target.value }))} value={newItem.type}><option value="district">Kecamatan</option><option value="purpose">Peruntukan listing</option></select>
+          <input className="min-h-11 rounded-lg border border-[#D2DDD2] px-3 text-sm" maxLength={120} minLength={2} onChange={(event) => setNewItem((value) => ({ ...value, label: event.target.value }))} placeholder="Nama kecamatan / peruntukan" required value={newItem.label} />
+          <button className="min-h-11 rounded-lg bg-[#1C6B4A] px-4 text-sm font-semibold text-white disabled:opacity-60" disabled={busy} type="submit">Tambah</button>
+          {newItem.type === "district" ? <label className="flex items-center gap-2 text-sm text-[#52645A] sm:col-start-2"><input checked={newItem.available_for_listings} onChange={(event) => setNewItem((value) => ({ ...value, available_for_listings: event.target.checked }))} type="checkbox" />Tersedia untuk listing UMKM</label> : null}
+        </form>
+        {notice.message ? <p className={"mt-3 text-sm " + (notice.type === "error" ? "text-[#A33B32]" : "text-[#236644]")} role={notice.type === "error" ? "alert" : "status"}>{notice.message}</p> : null}
       </AdminPanel>
+      {status.type === "loading" ? <DashboardState title="Memuat data master" description="Mengambil kecamatan dan peruntukan…" tone="loading" /> : null}
+      {status.type === "error" ? <DashboardState title="Data master belum dapat dimuat" description={status.message} actionLabel="Coba lagi" onAction={() => setReload((value) => value + 1)} tone="error" /> : null}
+      {status.type === "ready" ? ["district", "purpose"].map((type) => <AdminPanel key={type} title={type === "district" ? "Kecamatan" : "Peruntukan listing"}>
+        <div className="mt-4 space-y-3">{items.filter((item) => item.type === type).map((item) => <div className="grid gap-3 rounded-xl border border-[#E5EBE4] p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center" key={item.id}>
+          <div><input aria-label={"Nama " + item.label} className="min-h-10 w-full rounded-lg border border-[#D2DDD2] px-3 text-sm font-semibold" onChange={(event) => updateItem(item.id, "label", event.target.value)} value={item.label} /><p className="mt-1 text-xs text-[#63756B]">Key: {item.key} · Dipakai {item.usage_count} kali</p></div>
+          <div className="flex flex-wrap gap-3 text-xs text-[#52645A]"><label className="flex items-center gap-2"><input checked={item.is_active} onChange={(event) => updateItem(item.id, "is_active", event.target.checked)} type="checkbox" />Aktif</label>{type === "district" ? <label className="flex items-center gap-2"><input checked={item.available_for_listings} onChange={(event) => updateItem(item.id, "available_for_listings", event.target.checked)} type="checkbox" />Untuk listing</label> : null}</div>
+          <div className="flex gap-2"><button className="min-h-10 rounded-lg border border-[#DDE5DC] px-3 text-xs font-semibold text-[#1C6B4A] disabled:opacity-50" disabled={busyId === item.id} onClick={() => void saveItem(item)} type="button">Simpan</button><button className="min-h-10 rounded-lg border border-[#F0D7D3] px-3 text-xs font-semibold text-[#A33B32] disabled:opacity-50" disabled={busyId === item.id || item.usage_count > 0} onClick={() => void deleteItem(item)} type="button">Hapus</button></div>
+        </div>)}</div>
+      </AdminPanel>) : null}
     </AdminDataPage>
   );
 }

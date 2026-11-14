@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\MasterDataItem;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -13,12 +14,6 @@ class RegisterUmkmRequest extends FormRequest
         'Katering',
         'Kedai minuman',
         'Lainnya',
-    ];
-
-    private const DISTRICTS = [
-        'Karawang Barat',
-        'Telukjambe Timur',
-        'Karawang Timur',
     ];
 
     public function authorize(): bool
@@ -47,7 +42,7 @@ class RegisterUmkmRequest extends FormRequest
             'phone' => ['required', 'string', 'regex:/^(?:\+62|0)8\d{7,11}$/', 'max:20'],
             'business' => ['required', 'string', 'min:2', 'max:160'],
             'businessType' => ['required', Rule::in(self::BUSINESS_TYPES)],
-            'district' => ['required', Rule::in(self::DISTRICTS)],
+            'district' => ['required', Rule::in(MasterDataItem::activeKeys('district', true))],
             'address' => ['required', 'string', 'min:5', 'max:1000'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'business_proof' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],

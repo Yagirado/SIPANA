@@ -1,0 +1,71 @@
+flowchart LR
+    visitor((Pengunjung))
+    community((Komunitas))
+    umkm((UMKM))
+    admin((Admin))
+
+    subgraph public[Publik]
+        browse([Lihat dan cari listing])
+        detail([Lihat detail dan gambar listing])
+        registerCommunity([Daftar sebagai komunitas])
+        registerUmkm([Daftar UMKM dan kirim bukti usaha])
+        login([Masuk])
+    end
+
+    subgraph communityCases[Komunitas]
+        claim([Klaim listing])
+        ownClaims([Lihat klaim])
+        report([Laporkan listing atau klaim])
+        reply([Kirim tanggapan atau banding])
+    end
+
+    subgraph umkmCases[UMKM]
+        profile([Kelola profil usaha])
+        listings([Kelola listing dan foto])
+        handover([Konfirmasi serah terima])
+        umkmClaims([Lihat klaim])
+        umkmReport([Laporkan masalah klaim])
+        impact([Lihat dampak usaha])
+    end
+
+    subgraph adminCases[Admin]
+        verify([Tinjau dan putuskan verifikasi])
+        manageReports([Tinjau laporan dan tanggapan])
+        decide([Putuskan laporan dan banding])
+        manageUsers([Kelola pengguna])
+        master([Kelola kecamatan dan peruntukan])
+        metrics([Lihat metrik dan dampak])
+        export([Ekspor data CSV])
+        audit([Lihat audit log])
+    end
+
+    visitor --> browse
+    visitor --> detail
+    visitor --> registerCommunity
+    visitor --> registerUmkm
+    visitor --> login
+    community --> browse
+    community --> detail
+    community --> claim
+    community --> ownClaims
+    community --> report
+    community --> reply
+    umkm --> profile
+    umkm --> listings
+    umkm --> handover
+    umkm --> umkmClaims
+    umkm --> umkmReport
+    umkm --> impact
+    admin --> verify
+    admin --> manageReports
+    admin --> decide
+    admin --> manageUsers
+    admin --> master
+    admin --> metrics
+    admin --> export
+    admin --> audit
+
+    registerUmkm -. bukti usaha disimpan privat .-> verify
+    listings -. gambar disimpan privat .-> detail
+    report -.-> manageReports
+    manageReports -.-> decide

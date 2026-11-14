@@ -7,7 +7,9 @@ use App\Http\Requests\Api\StoreCommunityReportRequest;
 use App\Http\Requests\Api\UpdateCommunityProfileRequest;
 use App\Models\Claim;
 use App\Models\Listing;
+use App\Models\MasterDataItem;
 use App\Models\Report;
+use App\Services\AuditLogger;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +18,10 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class CommunityController extends Controller
 {
-    public function __construct(private readonly ListingController $listings) {}
+    public function __construct(
+        private readonly ListingController $listings,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -25,7 +30,7 @@ class CommunityController extends Controller
         $latestListings = Listing::query()->available()->latest('created_at')->limit(4)->get();
 
         return response()->json([
-            'user' => $member->only(['id', 'name', 'email', 'role', 'district']),
+            'user' => [...$member->only(['id', 'name', 'email', 'role']), 'district' => MasterDataItem::labelFor('district', $member->district)],
             'available_listings' => Listing::query()->available()->count(),
             'active_claims' => Claim::query()->where('claimant_id', $member->id)->where('status', Claim::STATUS_ACTIVE)->count(),
             'latest_listings' => $latestListings->map(fn (Listing $listing) => [
@@ -35,7 +40,9 @@ class CommunityController extends Controller
                 'quantity' => $listing->quantity,
                 'pickup_ends_at' => $listing->pickup_ends_at,
                 'purpose' => $listing->purpose,
-                'district' => $listing->district,
+                'purpose_label' => MasterDataItem::labelFor('purpose', $listing->purpose),
+                'district' => MasterDataItem::labelFor('district', $listing->district),
+                'district_key' => $listing->district,
                 'verified' => true,
             ]),
         ]);
@@ -44,6 +51,7 @@ class CommunityController extends Controller
     public function storeClaim(Request $request, int $listingId): JsonResponse
     {
         $this->listings->expireDueRecords();
+        abort_unless(! $request->user()->isModerationRestricted(), 403, 'Akun sedang dibatasi berdasarkan keputusan moderasi. Klaim baru belum dapat dibuat.');
 
         try {
             $claim = DB::transaction(function () use ($request, $listingId): Claim {
@@ -53,7 +61,7 @@ class CommunityController extends Controller
                     throw new ConflictHttpException('Listing dari UMKM terverifikasi tidak ditemukan.');
                 }
 
-                if ($listing->status !== Listing::STATUS_PUBLISHED || $listing->pickup_ends_at->isPast()) {
+                if ($listing->status !== Listing::STATUS_PUBLISHED || $listing->moderation_status !== Listing::MODERATION_ACTIVE || $listing->owner?->isModerationRestricted() || $listing->pickup_ends_at->isPast()) {
                     throw new ConflictHttpException('Listing ini sudah tidak tersedia untuk diklaim.');
                 }
 
@@ -65,6 +73,14 @@ class CommunityController extends Controller
                 ]);
 
                 $listing->update(['status' => Listing::STATUS_CLAIMED]);
+                $this->auditLogger->record(
+                    $request->user(),
+                    'claim.created',
+                    'claim',
+                    $claim->id,
+                    null,
+                    ['listing_id' => $listing->id, 'claimant_id' => $request->user()->id, 'status' => $claim->status, 'claimed_at' => $claim->claimed_at?->toIso8601String()],
+                );
 
                 return $claim->load('listing', 'listing.owner');
             });
@@ -135,6 +151,7 @@ class CommunityController extends Controller
             'category' => $report->category,
             'description' => $report->description,
             'status' => $report->status,
+            'reporter_outcome_summary' => $report->reporter_outcome_summary,
             'created_at' => $report->created_at,
             'target_title' => $report->listing?->title ?? $report->claim?->listing?->title,
         ]);
@@ -145,21 +162,33 @@ class CommunityController extends Controller
     public function storeReport(StoreCommunityReportRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $subjectId = null;
+        $listingId = $data['listing_id'] ?? null;
 
         if (isset($data['claim_id'])) {
-            $ownsClaim = Claim::query()
+            $claim = Claim::query()->with('listing')
                 ->whereKey($data['claim_id'])
                 ->where('claimant_id', $request->user()->id)
-                ->exists();
+                ->first();
 
-            if (! $ownsClaim) {
+            if (! $claim) {
                 return response()->json(['message' => 'Klaim yang dilaporkan tidak ditemukan.'], 404);
             }
+            $listingId = $claim->listing_id;
+            $subjectId = $claim->listing?->owner_id;
+        } elseif (isset($listingId)) {
+            $listing = Listing::query()->findOrFail($listingId);
+            $subjectId = $listing->owner_id;
+        }
+
+        if (! $subjectId || (int) $subjectId === (int) $request->user()->id) {
+            return response()->json(['message' => 'Pihak terlapor tidak dapat ditentukan dari objek ini.'], 422);
         }
 
         $report = Report::query()->create([
             'reporter_id' => $request->user()->id,
-            'listing_id' => $data['listing_id'] ?? null,
+            'subject_user_id' => $subjectId,
+            'listing_id' => $listingId,
             'claim_id' => $data['claim_id'] ?? null,
             'category' => $data['category'],
             'description' => $data['description'] ?? null,
@@ -175,7 +204,9 @@ class CommunityController extends Controller
     private function profileData($member): array
     {
         return [
-            ...$member->only(['id', 'name', 'email', 'phone', 'gender', 'district']),
+            ...$member->only(['id', 'name', 'email', 'phone', 'gender']),
+            'district' => MasterDataItem::labelFor('district', $member->district),
+            'district_key' => $member->district,
             'birth_date' => $member->birth_date?->format('Y-m-d'),
         ];
     }
@@ -199,7 +230,9 @@ class CommunityController extends Controller
                 'pickup_starts_at' => $claim->listing->pickup_starts_at,
                 'pickup_ends_at' => $claim->listing->pickup_ends_at,
                 'purpose' => $claim->listing->purpose,
-                'district' => $claim->listing->district,
+                'purpose_label' => MasterDataItem::labelFor('purpose', $claim->listing->purpose),
+                'district' => MasterDataItem::labelFor('district', $claim->listing->district),
+                'district_key' => $claim->listing->district,
                 'pickup_address' => $claim->listing->pickup_address,
             ],
         ];
