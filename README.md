@@ -9,7 +9,7 @@ SIPANA (*Sistem Informasi Pangan Berlebih*) adalah platform web yang dirancang u
 
 SIPANA ingin membuat surplus pangan lebih mudah ditemukan dan dibagikan melalui informasi listing, jadwal pengambilan, verifikasi UMKM, dan pencatatan serah terima.
 
-Pilot awal mencakup Karawang Barat, Telukjambe Timur, dan Karawang Timur. Pengunjung dapat menjelajah tanpa akun; klaim memerlukan akun anggota.
+Wilayah layanan mencakup Karawang Barat, Telukjambe Timur, dan Karawang Timur. Pengunjung dapat menjelajah tanpa akun; klaim memerlukan akun anggota.
 
 ## Fitur
 
@@ -79,7 +79,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-`pnpm dev:api` menjalankan `php artisan serve`; `pnpm dev:web` menjalankan Vite. Skrip web tambahan:
+`pnpm dev:api` menjalankan server API dan scheduler Laravel; `pnpm dev:web` menjalankan Vite. Di production, jalankan scheduler Laravel setiap menit dengan cron atau task scheduler server (`php artisan schedule:run`). Skrip web tambahan:
 
 ```bash
 pnpm --filter @sipana/web build

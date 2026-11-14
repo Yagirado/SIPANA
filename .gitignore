@@ -52,4 +52,7 @@ Thumbs.db
 auth.json
 .phpactor.json
 
-.agents 
+.agents
+
+skills-lock.json
+.superpowers/

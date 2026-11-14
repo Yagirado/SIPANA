@@ -1,0 +1,53 @@
+flowchart LR
+    community[Entitas eksternal: Pengguna komunitas]
+    umkm[Entitas eksternal: Pengguna UMKM]
+    admin[Entitas eksternal: Admin]
+    public[Entitas eksternal: Pengunjung]
+
+    auth((P1 Autentikasi dan akun))
+    registration((P2 Registrasi dan verifikasi UMKM))
+    listing((P3 Listing, pencarian, dan klaim))
+    report((P4 Laporan dan moderasi))
+    adminOps((P5 Data master, metrik, dan ekspor))
+
+    dUsers[(D1 Pengguna dan profil UMKM)]
+    dListings[(D2 Listing dan klaim)]
+    dReports[(D3 Laporan dan event laporan)]
+    dMaster[(D4 Data master kecamatan dan peruntukan)]
+    dAudit[(D5 Audit log administrator)]
+    b2Docs[(B2 privat: sipana-documents)]
+    b2Images[(B2 privat: sipana-images)]
+
+    public -->|Lihat listing dan referensi| listing
+    community -->|Daftar, masuk, keluar| auth
+    umkm -->|Daftar, masuk, keluar| auth
+    admin -->|Masuk dan operasi admin| auth
+    auth <-->|Akun, peran, sesi| dUsers
+
+    umkm -->|Data usaha dan bukti| registration
+    admin -->|Keputusan verifikasi| registration
+    registration <-->|Profil dan status verifikasi| dUsers
+    registration <-->|Simpan/baca bukti usaha| b2Docs
+
+    umkm -->|Buat dan kelola listing, unggah gambar| listing
+    community -->|Cari, klaim, konfirmasi penerimaan| listing
+    listing <-->|Listing dan klaim| dListings
+    listing <-->|Kecamatan dan peruntukan aktif| dMaster
+    listing <-->|Simpan/baca gambar listing| b2Images
+    public -->|Minta gambar listing| listing
+
+    community -->|Laporan dan tanggapan/banding| report
+    umkm -->|Laporan masalah dan tanggapan/banding| report
+    admin -->|Tinjau, minta tanggapan, putuskan| report
+    report <-->|Laporan dan riwayat event| dReports
+    report -->|Perubahan moderasi| dUsers
+    report -->|Perubahan status listing| dListings
+    report -->|Jejak keputusan| dAudit
+
+    admin -->|Kelola kecamatan/peruntukan| adminOps
+    admin -->|Minta metrik dan CSV| adminOps
+    admin -->|Lihat riwayat aktivitas| adminOps
+    adminOps <-->|Data agregat dan ekspor| dListings
+    adminOps <-->|Ringkasan dampak klaim| dUsers
+    adminOps <-->|Referensi listing| dMaster
+    adminOps <-->|Perubahan administratif| dAudit

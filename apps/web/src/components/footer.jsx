@@ -1,3 +1,5 @@
+import { Link } from "react-router";
+
 export default function Footer() {
   return (
     <footer className="bg-white">
@@ -14,12 +16,12 @@ export default function Footer() {
           aria-label="Navigasi footer"
           className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-[#52645A]"
         >
-          <a className="hover:text-[#183A2E]" href="/ketentuan-pengguna">
+          <Link className="hover:text-[#183A2E]" to="/ketentuan-pengguna">
             Ketentuan Pengguna
-          </a>
-          <a className="hover:text-[#183A2E]" href="/kebijakan-privasi">
+          </Link>
+          <Link className="hover:text-[#183A2E]" to="/kebijakan-privasi">
             Kebijakan Privasi
-          </a>
+          </Link>
         </nav>
       </div>
     </footer>

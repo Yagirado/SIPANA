@@ -1,5 +1,11 @@
 <?php
 
+$b2Endpoint = trim((string) env('B2_ENDPOINT', ''));
+if ($b2Endpoint !== '') {
+    $b2Endpoint = 'https://'.preg_replace('#^https?://#i', '', $b2Endpoint);
+    $b2Endpoint = rtrim($b2Endpoint, '/');
+}
+
 return [
 
     /*
@@ -58,6 +64,30 @@ return [
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,
             'report' => false,
+        ],
+
+        'b2-documents' => [
+            'driver' => 's3',
+            'key' => env('B2_DOCUMENTS_KEY_ID'),
+            'secret' => env('B2_DOCUMENTS_APPLICATION_KEY'),
+            'region' => env('B2_REGION'),
+            'bucket' => env('B2_DOCUMENTS_BUCKET'),
+            'endpoint' => $b2Endpoint,
+            'use_path_style_endpoint' => false,
+            'visibility' => 'private',
+            'throw' => true,
+        ],
+
+        'b2-images' => [
+            'driver' => 's3',
+            'key' => env('B2_IMAGES_KEY_ID'),
+            'secret' => env('B2_IMAGES_APPLICATION_KEY'),
+            'region' => env('B2_REGION'),
+            'bucket' => env('B2_IMAGES_BUCKET'),
+            'endpoint' => $b2Endpoint,
+            'use_path_style_endpoint' => false,
+            'visibility' => 'private',
+            'throw' => true,
         ],
 
     ],
