@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\MasterDataItem;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -31,7 +32,7 @@ class RegisterCommunityRequest extends FormRequest
             'phone' => ['required', 'string', 'regex:/^(?:\+62|0)8\d{7,11}$/', 'max:20'],
             'gender' => ['nullable', Rule::in(['male', 'female', 'prefer_not_to_say'])],
             'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
-            'district' => ['required', Rule::in(['Karawang Barat', 'Telukjambe Timur', 'Karawang Timur'])],
+            'district' => ['required', Rule::in(MasterDataItem::activeKeys('district'))],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'consent' => ['accepted'],
         ];

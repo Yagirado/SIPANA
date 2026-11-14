@@ -4,7 +4,7 @@
     "type": "module",
     "name": "@sipana/api",
     "scripts": {
-    "serve": "php artisan serve"
+    "serve": "concurrently --kill-others -n api,scheduler \"php artisan serve\" \"php artisan schedule:work\""
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

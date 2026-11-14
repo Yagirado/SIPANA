@@ -3,7 +3,7 @@ import { ArrowRight, Flag, Store, Users } from "lucide-react";
 import { Link } from "react-router";
 import { useAuth } from "../../auth/use-auth.js";
 import { apiRequest } from "../../lib/api.js";
-import { AdminPageHeading, AdminPanel, AdminUnavailable } from "../../components/dashboard/admin-ui.jsx";
+import { AdminPageHeading, AdminPanel } from "../../components/dashboard/admin-ui.jsx";
 import { DashboardState } from "../../components/dashboard/dashboard-state.jsx";
 
 const adminDestinations = [
@@ -47,6 +47,9 @@ export function AdminOverview() {
     }
   }
 
+  const postsByDistrict = status.metrics?.listings?.by_district ?? [];
+  const maxPosts = postsByDistrict.reduce((maximum, item) => Math.max(maximum, Number(item.count) || 0), 1);
+
   return (
     <div>
       <AdminPageHeading
@@ -86,8 +89,15 @@ export function AdminOverview() {
           </div>
 
           <div className="mt-5 grid gap-5 xl:grid-cols-[1.5fr_1fr]">
-            <AdminPanel title="Sebaran postingan" description="Aktivitas per kecamatan.">
-              <div className="mt-4"><AdminUnavailable title="Grafik belum tersedia" description="Ringkasan API admin belum menyediakan data listing per kecamatan." /></div>
+            <AdminPanel title="Sebaran postingan" description="Jumlah postingan yang pernah dibuat, dikelompokkan berdasarkan kecamatan.">
+              {postsByDistrict.length ? <div aria-label="Grafik jumlah postingan per kecamatan" className="mt-5 space-y-4" role="img">
+                {postsByDistrict.map((item) => <div className="grid grid-cols-[minmax(5.5rem,0.8fr)_2fr_2.5rem] items-center gap-3" key={item.key}>
+                    <span className="truncate text-sm font-medium text-[#52645A]" title={item.label}>{item.label}</span>
+                    <div aria-hidden="true" className="h-3 overflow-hidden rounded-full bg-[#E8EEE7]"><div className="h-full rounded-full bg-[#1C6B4A] transition-[width]" style={{ width: `${Math.max(item.count ? 3 : 0, item.count / maxPosts * 100)}%` }} /></div>
+                    <span className="text-right text-sm font-semibold tabular-nums text-[#183A2E]">{Number(item.count).toLocaleString("id-ID")}</span>
+                  </div>)}
+                <p className="border-t border-[#E8EEE7] pt-3 text-xs text-[#829187]">Total {Number(status.metrics.listings.total).toLocaleString("id-ID")} postingan · mencakup seluruh status listing.</p>
+              </div> : <p className="mt-4 rounded-xl bg-[#F5F7F1] p-4 text-sm text-[#63756B]">Belum ada postingan untuk ditampilkan.</p>}
             </AdminPanel>
             <AdminPanel title="Akses cepat" description="Buka antrean admin yang tersedia di navigasi.">
               <div className="mt-3 divide-y divide-[#E8EEE7]">

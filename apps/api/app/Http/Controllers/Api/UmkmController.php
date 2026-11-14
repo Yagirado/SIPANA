@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Claim;
 use App\Models\Listing;
+use App\Models\MasterDataItem;
 use App\Models\Report;
 use App\Models\UmkmProfile;
+use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -14,12 +16,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Throwable;
 
 class UmkmController extends Controller
 {
-    private const DISTRICTS = ['Karawang Barat', 'Telukjambe Timur', 'Karawang Timur'];
-
-    public function __construct(private readonly ListingController $listings) {}
+    public function __construct(
+        private readonly ListingController $listings,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -27,19 +31,22 @@ class UmkmController extends Controller
         $owner = $request->user();
         $listings = $owner->listings();
         $profile = $owner->umkmProfile;
+        $monthStart = now('Asia/Jakarta')->startOfMonth()->utc();
+        $nextMonthStart = $monthStart->copy()->addMonth();
         $nextClaim = Claim::query()->with(['listing', 'claimant'])
             ->whereHas('listing', fn ($query) => $query->where('owner_id', $owner->id))
             ->where('status', Claim::STATUS_ACTIVE)->orderBy('claimed_at')->first();
 
         return response()->json([
-            'user' => $owner->only(['id', 'name', 'email', 'phone', 'district', 'role']),
+            'user' => [...$owner->only(['id', 'name', 'email', 'phone', 'role']), 'district' => MasterDataItem::labelFor('district', $owner->district)],
             'verification' => $this->verificationData($owner),
+            'moderation' => ['status' => $owner->moderation_status ?? 'active', 'reason' => $owner->moderation_reason, 'restricted_at' => $owner->restricted_at],
             'terms' => ['accepted_at' => $profile?->terms_accepted_at, 'version' => $profile?->terms_version],
             'metrics' => [
-                'active_listings' => (clone $listings)->where('status', Listing::STATUS_PUBLISHED)->count(),
+                'active_listings' => (clone $listings)->where('status', Listing::STATUS_PUBLISHED)->where('moderation_status', Listing::MODERATION_ACTIVE)->count(),
                 'incoming_claims' => (clone $listings)->where('status', Listing::STATUS_CLAIMED)->count(),
-                'completed_handover' => (clone $listings)->where('status', Listing::STATUS_COMPLETED)->where('updated_at', '>=', now()->startOfMonth())->count(),
-                'portions_distributed' => (clone $listings)->where('status', Listing::STATUS_COMPLETED)->where('updated_at', '>=', now()->startOfMonth())->sum('quantity'),
+                'completed_handover' => (clone $listings)->where('status', Listing::STATUS_COMPLETED)->where('updated_at', '>=', $monthStart)->where('updated_at', '<', $nextMonthStart)->count(),
+                'portions_distributed' => (clone $listings)->where('status', Listing::STATUS_COMPLETED)->where('updated_at', '>=', $monthStart)->where('updated_at', '<', $nextMonthStart)->sum('quantity'),
             ],
             'latest_listings' => (clone $listings)->with('claim.claimant')->latest()->limit(5)->get()->map(fn (Listing $listing) => $this->listingData($listing)),
             'next_claim' => $nextClaim ? $this->claimData($nextClaim) : null,
@@ -87,19 +94,39 @@ class UmkmController extends Controller
         $acceptance = $profile->terms_accepted_at ? [] : $request->validate([
             'terms_accepted' => ['required', 'accepted'],
         ]);
-        $listing = DB::transaction(function () use ($request, $data, $profile, $acceptance): Listing {
-            if (! $profile->terms_accepted_at && ($acceptance['terms_accepted'] ?? false)) {
-                $profile->update(['terms_accepted_at' => now(), 'terms_version' => '1.0']);
+        $photoPath = $request->file('photo')?->store('umkm/listings/'.$request->user()->id, [
+            'disk' => 'b2-images',
+            'visibility' => 'private',
+        ]);
+        if ($request->hasFile('photo') && ! $photoPath) {
+            return response()->json(['message' => 'Foto listing gagal disimpan. Coba unggah kembali.'], 500);
+        }
+        try {
+            $listing = DB::transaction(function () use ($request, $data, $profile, $acceptance, $photoPath): Listing {
+                if (! $profile->terms_accepted_at && ($acceptance['terms_accepted'] ?? false)) {
+                    $profile->update(['terms_accepted_at' => now(), 'terms_version' => '1.0']);
+                }
+
+                $listing = $request->user()->listings()->create([
+                    ...$data,
+                    ...($photoPath ? ['photo_path' => $photoPath] : []),
+                    'business_name' => $profile->business_name,
+                    'pickup_address' => $profile->business_address,
+                    'safety_attested_at' => now(),
+                    'status' => Listing::STATUS_PUBLISHED,
+                ]);
+
+                $this->auditLogger->record($request->user(), 'listing.created', 'listing', $listing->id, null, $this->listingAuditData($listing));
+
+                return $listing;
+            });
+        } catch (Throwable $exception) {
+            if ($photoPath) {
+                Storage::disk('b2-images')->delete($photoPath);
             }
 
-            return $request->user()->listings()->create([
-                ...$data,
-                'business_name' => $profile->business_name,
-                'pickup_address' => $profile->business_address,
-                'safety_attested_at' => now(),
-                'status' => Listing::STATUS_PUBLISHED,
-            ]);
-        });
+            throw $exception;
+        }
 
         return response()->json(['message' => 'Listing berhasil dipublikasikan.', 'listing' => $this->listingData($listing)], 201);
     }
@@ -111,7 +138,36 @@ class UmkmController extends Controller
         if ($listing->status !== Listing::STATUS_PUBLISHED || $listing->claim !== null) {
             return response()->json(['message' => 'Listing hanya dapat diubah sebelum diklaim.'], 409);
         }
-        $listing->update([...$this->validateListing($request), 'safety_attested_at' => now()]);
+        $data = $this->validateListing($request, $listing);
+        $photoPath = $request->file('photo')?->store('umkm/listings/'.$request->user()->id, [
+            'disk' => 'b2-images',
+            'visibility' => 'private',
+        ]);
+        if ($request->hasFile('photo') && ! $photoPath) {
+            return response()->json(['message' => 'Foto listing gagal disimpan. Coba unggah kembali.'], 500);
+        }
+        $previousPhotoPath = $listing->photo_path;
+        $previousPhotoDisk = $photoPath && $previousPhotoPath ? $this->listingPhotoDisk($previousPhotoPath) : null;
+        $before = $this->listingAuditData($listing);
+        try {
+            DB::transaction(function () use ($listing, $request, $data, $photoPath, $before): void {
+                $listing->update([
+                    ...$data,
+                    ...($photoPath ? ['photo_path' => $photoPath] : []),
+                    'safety_attested_at' => now(),
+                ]);
+                $this->auditLogger->record($request->user(), 'listing.updated', 'listing', $listing->id, $before, $this->listingAuditData($listing->fresh()));
+            });
+        } catch (Throwable $exception) {
+            if ($photoPath) {
+                Storage::disk('b2-images')->delete($photoPath);
+            }
+
+            throw $exception;
+        }
+        if ($photoPath && $previousPhotoDisk && $previousPhotoPath !== $photoPath) {
+            Storage::disk($previousPhotoDisk)->delete($previousPhotoPath);
+        }
 
         return response()->json(['message' => 'Perubahan listing berhasil disimpan.', 'listing' => $this->listingData($listing->fresh())]);
     }
@@ -122,7 +178,11 @@ class UmkmController extends Controller
         if ($listing->status !== Listing::STATUS_PUBLISHED || $listing->claim !== null) {
             return response()->json(['message' => 'Listing hanya dapat ditarik sebelum diklaim.'], 409);
         }
-        $listing->update(['status' => Listing::STATUS_WITHDRAWN]);
+        DB::transaction(function () use ($listing, $request): void {
+            $before = $this->listingAuditData($listing);
+            $listing->update(['status' => Listing::STATUS_WITHDRAWN]);
+            $this->auditLogger->record($request->user(), 'listing.withdrawn', 'listing', $listing->id, $before, $this->listingAuditData($listing->fresh()));
+        });
 
         return response()->json(['message' => 'Listing ditarik dari publik.']);
     }
@@ -164,6 +224,14 @@ class UmkmController extends Controller
 
                 $claim->update(['status' => Claim::STATUS_COMPLETED, 'completed_at' => now()]);
                 $listing->update(['status' => Listing::STATUS_COMPLETED]);
+                $this->auditLogger->record(
+                    $request->user(),
+                    'handover.confirmed',
+                    'claim',
+                    $claim->id,
+                    ['claim_status' => Claim::STATUS_ACTIVE, 'listing_status' => Listing::STATUS_CLAIMED],
+                    ['claim_status' => $claim->status, 'listing_status' => $listing->status, 'listing_id' => $listing->id, 'portions' => $listing->quantity, 'completed_at' => $claim->completed_at?->toIso8601String()],
+                );
 
                 return $claim->fresh(['listing', 'claimant']);
             });
@@ -180,9 +248,10 @@ class UmkmController extends Controller
             'category' => ['required', Rule::in(['food_safety', 'misrepresentation', 'inappropriate_behavior', 'other'])],
             'description' => ['nullable', 'string', 'max:2000'],
         ]);
-        $claim = Claim::query()->whereHas('listing', fn ($query) => $query->where('owner_id', $request->user()->id))->findOrFail($claimId);
+        $claim = Claim::query()->with('claimant')->whereHas('listing', fn ($query) => $query->where('owner_id', $request->user()->id))->findOrFail($claimId);
         $report = Report::query()->create([
             'reporter_id' => $request->user()->id,
+            'subject_user_id' => $claim->claimant_id,
             'listing_id' => $claim->listing_id,
             'claim_id' => $claim->id,
             'category' => $data['category'],
@@ -208,33 +277,42 @@ class UmkmController extends Controller
             'phone' => ['required', 'string', 'regex:/^(?:\\+62|0)8\\d{7,11}$/', 'max:20'],
             'business_name' => ['required', 'string', 'min:2', 'max:160'],
             'business_type' => ['required', 'string', 'max:80'],
-            'district' => ['required', Rule::in(self::DISTRICTS)],
+            'district' => ['required', Rule::in(array_values(array_unique([...MasterDataItem::activeKeys('district', true), $owner->district])))],
             'business_address' => ['required', 'string', 'min:5', 'max:1000'],
             'business_proof' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
-        $proofPath = $request->file('business_proof')?->store('umkm/business-proofs', 'local');
+        $proofPath = $request->file('business_proof')?->store('umkm/business-proofs', 'b2-documents');
         $previousProofPath = $profile->business_proof_path;
+        $previousProofDisk = $proofPath && $previousProofPath ? $this->proofDisk($previousProofPath) : null;
         $identityChanged = $profile->business_name !== $data['business_name']
             || $profile->business_type !== $data['business_type']
             || $profile->business_address !== $data['business_address']
             || $owner->name !== $data['name']
             || $owner->district !== $data['district']
             || $proofPath !== null;
-        DB::transaction(function () use ($owner, $profile, $data, $identityChanged, $proofPath): void {
-            $owner->update(['name' => $data['name'], 'phone' => $data['phone'], 'district' => $data['district']]);
-            $profile->update([
-                'business_name' => $data['business_name'],
-                'business_type' => $data['business_type'],
-                'business_address' => $data['business_address'],
-                ...($proofPath ? ['business_proof_path' => $proofPath] : []),
-                ...($identityChanged ? ['verification_status' => UmkmProfile::STATUS_PENDING, 'verification_reason' => null] : []),
-            ]);
-            if ($identityChanged) {
-                $owner->forceFill(['umkm_verified_at' => null])->save();
+        try {
+            DB::transaction(function () use ($owner, $profile, $data, $identityChanged, $proofPath): void {
+                $owner->update(['name' => $data['name'], 'phone' => $data['phone'], 'district' => $data['district']]);
+                $profile->update([
+                    'business_name' => $data['business_name'],
+                    'business_type' => $data['business_type'],
+                    'business_address' => $data['business_address'],
+                    ...($proofPath ? ['business_proof_path' => $proofPath] : []),
+                    ...($identityChanged ? ['verification_status' => UmkmProfile::STATUS_PENDING, 'verification_reason' => null] : []),
+                ]);
+                if ($identityChanged) {
+                    $owner->forceFill(['umkm_verified_at' => null])->save();
+                }
+            });
+        } catch (Throwable $exception) {
+            if ($proofPath) {
+                Storage::disk('b2-documents')->delete($proofPath);
             }
-        });
-        if ($proofPath && $previousProofPath !== $proofPath) {
-            Storage::disk('local')->delete($previousProofPath);
+
+            throw $exception;
+        }
+        if ($proofPath && $previousProofDisk && $previousProofPath !== $proofPath) {
+            Storage::disk($previousProofDisk)->delete($previousProofPath);
         }
 
         return response()->json([
@@ -245,11 +323,26 @@ class UmkmController extends Controller
 
     public function impact(Request $request): JsonResponse
     {
-        $month = $request->validate(['month' => ['nullable', 'date_format:Y-m']])['month'] ?? now()->format('Y-m');
-        $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
-        $end = $start->copy()->endOfMonth();
+        $month = $request->validate(['month' => ['nullable', 'date_format:Y-m']])['month'] ?? now('Asia/Jakarta')->format('Y-m');
+        $localStart = Carbon::createFromFormat('!Y-m', $month, 'Asia/Jakarta');
+        $localEnd = $localStart->copy()->endOfMonth();
+        $start = $localStart->copy()->utc();
+        $end = $localEnd->copy()->utc();
         $completed = $request->user()->listings()->where('status', Listing::STATUS_COMPLETED)
             ->whereBetween('updated_at', [$start, $end]);
+
+        $weeklyPortions = collect();
+        $cursor = $localStart->copy();
+        $week = 1;
+        while ($cursor->lte($localEnd)) {
+            $weekEnd = $cursor->copy()->addDays(6)->endOfDay()->min($localEnd);
+            $weeklyPortions->push([
+                'week' => $week++,
+                'portions' => $request->user()->listings()->where('status', Listing::STATUS_COMPLETED)
+                    ->whereBetween('updated_at', [$cursor->copy()->utc(), $weekEnd->copy()->utc()])->sum('quantity'),
+            ]);
+            $cursor = $weekEnd->copy()->addSecond()->startOfDay();
+        }
 
         return response()->json([
             'month' => $month,
@@ -258,18 +351,19 @@ class UmkmController extends Controller
                 ->whereBetween('claimed_at', [$start, $end])->count(),
             'completed_handovers' => (clone $completed)->count(),
             'portions_distributed' => (clone $completed)->sum('quantity'),
-            'weekly_portions' => collect(range(0, 3))->map(function (int $week) use ($request, $start, $end): array {
-                $weekStart = $start->copy()->addDays($week * 7);
-                $weekEnd = $week === 3 ? $end : $weekStart->copy()->addDays(6)->endOfDay();
-                return ['week' => $week + 1, 'portions' => $request->user()->listings()->where('status', Listing::STATUS_COMPLETED)
-                    ->whereBetween('updated_at', [$weekStart, $weekEnd])->sum('quantity')];
-            }),
+            'weekly_portions' => $weeklyPortions,
         ]);
     }
 
     /** @return array<string, mixed> */
-    private function validateListing(Request $request): array
+    private function validateListing(Request $request, ?Listing $existingListing = null): array
     {
+        $allowedDistricts = MasterDataItem::activeKeys('district', true);
+        $allowedPurposes = MasterDataItem::activeKeys('purpose');
+        if ($existingListing) {
+            $allowedDistricts[] = $existingListing->district;
+            $allowedPurposes[] = $existingListing->purpose;
+        }
         $data = $request->validate([
             'title' => ['required', 'string', 'min:2', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
@@ -277,17 +371,20 @@ class UmkmController extends Controller
             'prepared_at' => ['required', 'date', 'before_or_equal:now'],
             'pickup_starts_at' => ['required', 'date', 'after_or_equal:now'],
             'pickup_ends_at' => ['required', 'date', 'after:pickup_starts_at'],
-            'purpose' => ['required', Rule::in(Listing::PURPOSES)],
-            'district' => ['required', Rule::in(self::DISTRICTS)],
+            'purpose' => ['required', Rule::in(array_values(array_unique($allowedPurposes)))],
+            'district' => ['required', Rule::in(array_values(array_unique($allowedDistricts)))],
             'safety_attested' => ['required', 'accepted'],
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
         unset($data['safety_attested']);
+        unset($data['photo']);
 
         return $data;
     }
 
     private function ensureVerified(Request $request): void
     {
+        abort_unless(! $request->user()->isModerationRestricted(), 403, 'Akun sedang dibatasi berdasarkan keputusan moderasi. Anda tetap dapat membuka kasus, menjawab, dan mengajukan banding.');
         abort_unless($request->user()->umkm_verified_at !== null, 403, 'Akun usaha belum terverifikasi. Periksa status verifikasi sebelum menerbitkan listing.');
     }
 
@@ -310,7 +407,8 @@ class UmkmController extends Controller
             'name' => $owner->name,
             'email' => $owner->email,
             'phone' => $owner->phone,
-            'district' => $owner->district,
+            'district' => MasterDataItem::labelFor('district', $owner->district),
+            'district_key' => $owner->district,
             'business_name' => $profile?->business_name,
             'business_type' => $profile?->business_type,
             'business_address' => $profile?->business_address,
@@ -327,9 +425,51 @@ class UmkmController extends Controller
             'id' => $listing->id, 'business_name' => $listing->business_name, 'title' => $listing->title,
             'description' => $listing->description, 'quantity' => $listing->quantity, 'prepared_at' => $listing->prepared_at,
             'pickup_starts_at' => $listing->pickup_starts_at, 'pickup_ends_at' => $listing->pickup_ends_at,
-            'purpose' => $listing->purpose, 'district' => $listing->district, 'pickup_address' => $listing->pickup_address,
-            'status' => $listing->status, 'claimed_by' => $listing->claim?->claimant?->name,
+            'purpose' => $listing->purpose, 'purpose_label' => MasterDataItem::labelFor('purpose', $listing->purpose),
+            'district' => MasterDataItem::labelFor('district', $listing->district), 'district_key' => $listing->district, 'pickup_address' => $listing->pickup_address,
+            'status' => $listing->status,
+            'moderation_status' => $listing->moderation_status,
+            'moderation_reason' => $listing->moderation_reason,
+            'image_url' => $listing->photo_path ? route('listings.image', ['listingId' => $listing->id], false) : null,
+            'claimed_by' => $listing->claim?->claimant?->name,
             'claim_id' => $listing->claim?->id,
+        ];
+    }
+
+    private function proofDisk(string $path): ?string
+    {
+        foreach (['b2-documents', 'local'] as $disk) {
+            if (Storage::disk($disk)->exists($path)) {
+                return $disk;
+            }
+        }
+
+        return null;
+    }
+
+    private function listingPhotoDisk(string $path): ?string
+    {
+        foreach (['b2-images', 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($path)) {
+                return $disk;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<string, mixed> */
+    private function listingAuditData(Listing $listing): array
+    {
+        return [
+            'title' => $listing->title,
+            'quantity' => $listing->quantity,
+            'purpose' => $listing->purpose,
+            'district' => $listing->district,
+            'status' => $listing->status,
+            'prepared_at' => $listing->prepared_at?->toIso8601String(),
+            'pickup_starts_at' => $listing->pickup_starts_at?->toIso8601String(),
+            'pickup_ends_at' => $listing->pickup_ends_at?->toIso8601String(),
         ];
     }
 

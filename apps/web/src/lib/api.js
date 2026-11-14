@@ -85,3 +85,22 @@ export async function apiRequest(path, { method = "GET", body } = {}) {
 
   return payload;
 }
+
+export async function apiDownload(path) {
+  let response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      credentials: "include",
+      headers: { Accept: "text/csv, application/json", "X-Requested-With": "XMLHttpRequest" },
+    });
+  } catch {
+    throw new ApiError("Tidak dapat terhubung ke SIPANA. Periksa koneksi lalu coba lagi.");
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new ApiError(payload?.message ?? "Berkas belum dapat diunduh. Coba lagi.", { status: response.status, payload });
+  }
+
+  return response.blob();
+}

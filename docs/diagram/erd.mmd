@@ -1,0 +1,112 @@
+erDiagram
+    USERS {
+        bigint id PK
+        string name
+        string email UK
+        string role
+        string moderation_status
+        bigint moderation_case_id FK
+        datetime restricted_at
+    }
+
+    UMKM_PROFILES {
+        bigint id PK
+        bigint user_id FK,UK
+        string business_name
+        string business_type
+        text business_address
+        string business_proof_path
+        string verification_status
+        string verification_reason
+        string terms_version
+        datetime terms_accepted_at
+    }
+
+    LISTINGS {
+        bigint id PK
+        bigint owner_id FK
+        string business_name
+        string title
+        text description
+        smallint quantity
+        datetime prepared_at
+        datetime pickup_starts_at
+        datetime pickup_ends_at
+        string purpose
+        string district
+        text pickup_address
+        string photo_path
+        string status
+        string moderation_status
+        bigint moderation_case_id FK
+    }
+
+    CLAIMS {
+        bigint id PK
+        bigint listing_id FK,UK
+        bigint claimant_id FK
+        string status
+        datetime claimed_at
+        datetime completed_at
+    }
+
+    REPORTS {
+        bigint id PK
+        bigint reporter_id FK
+        bigint subject_user_id FK
+        bigint listing_id FK
+        bigint claim_id FK
+        string category
+        text description
+        string status
+        datetime response_due_at
+        string decision_action
+        text decision_reason
+        datetime appeal_deadline_at
+        string appeal_outcome
+    }
+
+    REPORT_EVENTS {
+        bigint id PK
+        bigint report_id FK
+        bigint actor_id FK
+        string event_type
+        string visibility
+        text body
+        json metadata
+    }
+
+    MASTER_DATA_ITEMS {
+        bigint id PK
+        string type
+        string key
+        string label
+        boolean is_active
+        boolean available_for_listings
+    }
+
+    ADMIN_AUDIT_LOGS {
+        bigint id PK
+        bigint admin_id FK
+        string actor_name
+        string action
+        string entity_type
+        string entity_id
+        text reason
+        json before
+        json after
+    }
+
+    USERS ||--o| UMKM_PROFILES : has
+    USERS ||--o{ LISTINGS : owns
+    USERS ||--o{ CLAIMS : submits
+    LISTINGS ||--o| CLAIMS : receives
+    USERS ||--o{ REPORTS : reports
+    USERS o|--o{ REPORTS : is_subject_of
+    LISTINGS o|--o{ REPORTS : concerns
+    CLAIMS o|--o{ REPORTS : concerns
+    REPORTS ||--o{ REPORT_EVENTS : records
+    USERS o|--o{ REPORT_EVENTS : acts_in
+    USERS o|--o{ ADMIN_AUDIT_LOGS : performs
+    REPORTS o|--o{ USERS : moderates
+    REPORTS o|--o{ LISTINGS : moderates

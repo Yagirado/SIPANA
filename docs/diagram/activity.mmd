@@ -1,0 +1,38 @@
+flowchart TD
+    start((Mulai)) --> submitted[Pengguna mengirim laporan listing atau klaim]
+    submitted --> open[Laporan berstatus open]
+    open --> adminReview[Admin meninjau bukti dan konteks]
+    adminReview --> emergency{Perlu penahanan darurat keamanan pangan?}
+    emergency -->|Ya| hold[Tahan listing terkait sementara; catat alasan]
+    emergency -->|Tidak| identify
+    hold --> identify[Identifikasi pihak terlapor dan ringkas masalah]
+    identify --> subjectKnown{Pihak terlapor dapat diidentifikasi?}
+    subjectKnown -->|Ya| responseRequest[Admin meminta tanggapan dan menetapkan tenggat]
+    subjectKnown -->|Belum| investigate[Admin lanjutkan pemeriksaan tanpa sanksi]
+    responseRequest --> awaiting[Laporan menunggu tanggapan]
+    awaiting --> response{Tanggapan masuk sebelum tenggat?}
+    response -->|Ya| saveResponse[Simpan tanggapan sebagai event]
+    response -->|Tidak| deadline[Tenggat tanggapan lewat]
+    saveResponse --> evidence[Admin menilai laporan, bukti, dan tanggapan]
+    deadline --> evidence
+    investigate --> evidence
+    evidence --> proven{Pelanggaran terbukti?}
+    proven -->|Tidak| noAction[Putuskan tanpa tindakan dan beri ringkasan hasil]
+    proven -->|Ya| action[Pilih tanpa tindakan, teguran, sembunyikan listing, atau batasi akun]
+    action --> guard{Tindakan proporsional dan syarat terpenuhi?}
+    guard -->|Tidak| noAction
+    guard -->|Ya| apply[Terapkan tindakan; simpan alasan dan audit]
+    noAction --> resolve[Status laporan selesai]
+    apply --> decision[Catat keputusan dan tenggat banding 7 hari]
+    decision --> appeal{Banding diajukan dalam 7 hari?}
+    appeal -->|Tidak| resolve
+    appeal -->|Ya| appealReview[Admin meninjau banding]
+    appealReview --> upheld{Keputusan awal dikuatkan?}
+    upheld -->|Ya| uphold[Catat banding ditolak; tindakan tetap berlaku]
+    upheld -->|Tidak| overturn[Catat keputusan dibatalkan; pulihkan pembatasan terkait]
+    uphold --> resolve
+    overturn --> resolve
+    resolve --> finish((Selesai))
+
+    classDef safeguard fill:#fff4cc,stroke:#a87900,color:#332600
+    class hold,identify,evidence,guard,appealReview,overturn safeguard

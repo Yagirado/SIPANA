@@ -1,0 +1,23 @@
+flowchart TD
+    V[Pengunjung] --> A{Daftar atau masuk}
+    A -->|Komunitas| C[Menjelajah listing]
+    A -->|UMKM| R[Daftar UMKM dan unggah bukti]
+    R --> D[(Dokumen privat B2: sipana-documents)]
+    R --> P[Profil verifikasi: pending]
+    P --> AD[Admin meninjau dokumen]
+    AD -->|Setujui| OK[UMKM terverifikasi]
+    AD -->|Tolak dengan alasan| NO[UMKM ditolak]
+    OK --> L[UMKM membuat listing]
+    L --> I[(Gambar privat B2: sipana-images)]
+    L --> PUB[Listing tayang]
+    C --> PUB
+    PUB -->|Komunitas klaim; satu klaim aktif per listing| CL[Klaim aktif]
+    CL --> H[Serah terima makanan]
+    H -->|UMKM konfirmasi| DONE[Klaim selesai]
+    PUB -->|Batas pengambilan lewat| EXP[Klaim/listing kedaluwarsa]
+    DONE --> IMP[Data dampak tercatat]
+    PUB --> REP[Laporan dari pengguna]
+    CL --> REP
+    REP --> WF[Alur peninjauan laporan oleh admin]
+    WF -->|Sesuai kebijakan| MOD[Tindakan moderasi atau tanpa tindakan]
+    MOD --> PUB

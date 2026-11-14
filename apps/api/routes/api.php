@@ -2,24 +2,34 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminOperationsController;
 use App\Http\Controllers\Api\CommunityController;
 use App\Http\Controllers\Api\ListingController;
+use App\Http\Controllers\Api\ReferenceDataController;
 use App\Http\Controllers\Api\RegistrationController;
+use App\Http\Controllers\Api\ReportWorkflowController;
 use App\Http\Controllers\Api\UmkmController;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login'])->middleware('guest');
+Route::post('/login', [AuthController::class, 'login'])->middleware(['guest', 'throttle:5,1']);
 Route::post('/register/community', [RegistrationController::class, 'registerCommunity'])
     ->middleware('throttle:5,1');
 Route::post('/register/umkm', [RegistrationController::class, 'registerUmkm'])
     ->middleware('throttle:5,1');
 Route::get('/listings', [ListingController::class, 'index']);
+Route::get('/reference-data', [ReferenceDataController::class, 'index']);
+Route::get('/listings/{listingId}/image', [ListingController::class, 'image'])
+    ->whereNumber('listingId')->name('listings.image');
 Route::get('/listings/{listingId}', [ListingController::class, 'show'])->whereNumber('listingId');
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/user', [AuthController::class, 'current']);
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/reports/cases', [ReportWorkflowController::class, 'cases']);
+    Route::get('/reports/cases/{reportId}', [ReportWorkflowController::class, 'showCase'])->whereNumber('reportId');
+    Route::post('/reports/cases/{reportId}/responses', [ReportWorkflowController::class, 'respond'])->whereNumber('reportId')->middleware('throttle:5,1');
+    Route::post('/reports/cases/{reportId}/appeals', [ReportWorkflowController::class, 'appeal'])->whereNumber('reportId')->middleware('throttle:3,1');
 
     Route::get('/admin/dashboard', [AuthController::class, 'dashboard'])
         ->middleware('role:'.User::ROLE_ADMIN);
@@ -54,6 +64,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     Route::prefix('/admin')->middleware('role:'.User::ROLE_ADMIN)->group(function (): void {
+        Route::get('/audit-logs', [AdminOperationsController::class, 'auditLogs']);
+        Route::get('/impact', [AdminOperationsController::class, 'impact']);
+        Route::get('/impact/export', [AdminOperationsController::class, 'exportImpact']);
+        Route::get('/master-data', [ReferenceDataController::class, 'adminIndex']);
+        Route::post('/master-data', [ReferenceDataController::class, 'store']);
+        Route::put('/master-data/{itemId}', [ReferenceDataController::class, 'update'])->whereNumber('itemId');
+        Route::delete('/master-data/{itemId}', [ReferenceDataController::class, 'destroy'])->whereNumber('itemId');
+        Route::get('/reports', [AdminController::class, 'reports']);
+        Route::get('/reports/{reportId}', [AdminController::class, 'report'])->whereNumber('reportId');
+        Route::post('/reports/{reportId}/workflow', [ReportWorkflowController::class, 'adminAction'])->whereNumber('reportId')->middleware('throttle:20,1');
         Route::get('/users', [AdminController::class, 'users']);
         Route::get('/metrics', [AdminController::class, 'metrics']);
         Route::get('/verifications', [AdminController::class, 'verifications']);

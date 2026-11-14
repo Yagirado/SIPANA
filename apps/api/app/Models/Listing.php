@@ -21,12 +21,16 @@ class Listing extends Model
 
     public const STATUS_REMOVED = 'removed';
 
+    public const MODERATION_ACTIVE = 'active';
+
+    public const MODERATION_HIDDEN = 'temporarily_hidden';
+
     public const PURPOSES = ['consumption', 'redistribution', 'animal_feed'];
 
     protected $fillable = [
         'owner_id', 'business_name', 'title', 'description', 'quantity', 'prepared_at',
         'pickup_starts_at', 'pickup_ends_at', 'purpose', 'district', 'pickup_address',
-        'photo_path', 'safety_attested_at', 'status',
+        'photo_path', 'safety_attested_at', 'status', 'moderation_status', 'moderation_reason', 'moderation_case_id', 'moderation_changed_at',
     ];
 
     protected function casts(): array
@@ -37,6 +41,7 @@ class Listing extends Model
             'pickup_starts_at' => 'immutable_datetime',
             'pickup_ends_at' => 'immutable_datetime',
             'safety_attested_at' => 'immutable_datetime',
+            'moderation_changed_at' => 'immutable_datetime',
         ];
     }
 
@@ -53,7 +58,8 @@ class Listing extends Model
     public function scopeAvailable(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_PUBLISHED)
+            ->where('moderation_status', self::MODERATION_ACTIVE)
             ->where('pickup_ends_at', '>', now())
-            ->whereHas('owner', fn (Builder $owner) => $owner->whereNotNull('umkm_verified_at'));
+            ->whereHas('owner', fn (Builder $owner) => $owner->whereNotNull('umkm_verified_at')->where('moderation_status', 'active'));
     }
 }

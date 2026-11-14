@@ -3,6 +3,7 @@ import { ArrowLeft, MapPin, ShieldCheck, Utensils, Clock3 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useAuth } from "../../auth/use-auth.js";
 import { apiRequest } from "../../lib/api.js";
+import { useReferenceData } from "../../lib/use-reference-data.js";
 import Nav from "../../components/nav.jsx";
 import Footer from "../../components/footer.jsx";
 import { DashboardState } from "../../components/dashboard/dashboard-state.jsx";
@@ -10,14 +11,13 @@ import { DashboardLayout } from "../../components/dashboard/dashboard-layout.jsx
 import { AdminPanel, AdminPageHeading } from "../../components/dashboard/admin-ui.jsx";
 import { formatDateTime, purposeLabel } from "./community-formatters.js";
 
-const districts = ["Karawang Barat", "Telukjambe Timur", "Karawang Timur"];
-
 export function FoodListingCard({ listing, detailHref }) {
   return (
     <Link
       className="group flex min-h-64 flex-col rounded-2xl border border-[#DDE5DC] bg-white p-5 transition-colors hover:border-[#9BB69E] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C6B4A]"
       to={detailHref ?? `/makanan/${listing.id}`}
     >
+      {listing.image_url ? <img alt={`Foto ${listing.title}`} className="mb-4 aspect-[16/9] w-full rounded-xl bg-[#F5F7F1] object-cover" loading="lazy" src={listing.image_url} /> : null}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="break-words text-lg font-bold text-[#183A2E] group-hover:text-[#1C6B4A]">{listing.title}</h3>
@@ -40,6 +40,7 @@ function PublicPage({ children }) {
 }
 
 export function FoodBrowsePage({ dashboard = false }) {
+  const { data: referenceData } = useReferenceData();
   const [district, setDistrict] = useState("");
   const [purpose, setPurpose] = useState("");
   const [page, setPage] = useState(1);
@@ -83,12 +84,12 @@ export function FoodBrowsePage({ dashboard = false }) {
       <section aria-label="Filter listing" className="mt-7 flex flex-wrap gap-3 rounded-2xl border border-[#DDE5DC] bg-white p-4">
         <label className="min-w-52 flex-1 text-sm font-semibold text-[#364D41]">Kecamatan
           <select className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 text-sm font-normal focus:border-[#1C6B4A] focus:outline-none focus:ring-2 focus:ring-[#1C6B4A]/15" onChange={(event) => updateDistrict(event.target.value)} value={district}>
-            <option value="">Semua kecamatan</option>{districts.map((item) => <option key={item} value={item}>{item}</option>)}
+            <option value="">Semua kecamatan</option>{referenceData.listing_districts.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
           </select>
         </label>
         <label className="min-w-52 flex-1 text-sm font-semibold text-[#364D41]">Peruntukan
           <select className="mt-2 min-h-11 w-full rounded-lg border border-[#D2DDD2] bg-white px-3 text-sm font-normal focus:border-[#1C6B4A] focus:outline-none focus:ring-2 focus:ring-[#1C6B4A]/15" onChange={(event) => updatePurpose(event.target.value)} value={purpose}>
-            <option value="">Semua peruntukan</option><option value="consumption">Untuk konsumsi</option><option value="redistribution">Dibagikan kembali</option><option value="animal_feed">Pakan ternak</option>
+            <option value="">Semua peruntukan</option>{referenceData.purposes.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
           </select>
         </label>
         {district || purpose ? <button className="mt-auto min-h-11 rounded-lg px-3 text-sm font-semibold text-[#1C6B4A] hover:bg-[#F0F6F1]" onClick={() => { updateDistrict(""); updatePurpose(""); }} type="button">Hapus filter</button> : null}
@@ -166,14 +167,15 @@ export function FoodDetailPage({ dashboard = false }) {
         {status.type === "error" ? <DashboardState title="Detail listing tidak tersedia" description={status.message} actionLabel="Kembali ke listing" onAction={() => navigate(browsePath)} tone="error" /> : null}
         {status.type === "ready" && listing ? <article className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
           <AdminPanel>
+            {listing.image_url ? <img alt={`Foto ${listing.title}`} className="mb-5 max-h-[420px] w-full rounded-xl bg-[#F5F7F1] object-cover" loading="lazy" src={listing.image_url} /> : null}
             <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium text-[#1C6B4A]">{listing.business_name}</p><h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">{listing.title}</h1></div>{listing.verified ? <span className="inline-flex items-center gap-1 rounded-full bg-[#E6F3E9] px-3 py-2 text-xs font-semibold text-[#236644]"><ShieldCheck aria-hidden="true" size={15} /> UMKM terverifikasi</span> : null}</div>
             <p className="mt-5 whitespace-pre-wrap text-sm leading-7 text-[#52645A]">{listing.description || "Surplus pangan yang masih layak dibagikan."}</p>
             <dl className="mt-6 grid gap-5 border-t border-[#E8EEE7] pt-5 sm:grid-cols-2">
               <div><dt className="text-sm text-[#63756B]">Jumlah</dt><dd className="mt-1 font-semibold">{listing.quantity} porsi</dd></div>
-              <div><dt className="text-sm text-[#63756B]">Peruntukan</dt><dd className="mt-1 font-semibold">{purposeLabel(listing.purpose)}</dd></div>
+              <div><dt className="text-sm text-[#63756B]">Peruntukan</dt><dd className="mt-1 font-semibold">{listing.purpose_label || purposeLabel(listing.purpose)}</dd></div>
               <div><dt className="text-sm text-[#63756B]">Waktu memasak</dt><dd className="mt-1 font-semibold">{formatDateTime(listing.prepared_at)}</dd></div>
               <div><dt className="text-sm text-[#63756B]">Waktu pengambilan</dt><dd className="mt-1 font-semibold">{formatDateTime(listing.pickup_starts_at)} – {formatDateTime(listing.pickup_ends_at)}</dd></div>
-              <div className="sm:col-span-2"><dt className="text-sm text-[#63756B]">Lokasi pengambilan</dt><dd className="mt-1 flex items-start gap-2 font-semibold"><MapPin aria-hidden="true" className="mt-0.5 shrink-0 text-[#1C6B4A]" size={17} />{listing.pickup_address}, {listing.district}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-sm text-[#63756B]">Lokasi pengambilan</dt><dd className="mt-1 flex items-start gap-2 font-semibold"><MapPin aria-hidden="true" className="mt-0.5 shrink-0 text-[#1C6B4A]" size={17} />Kecamatan {listing.district}. Alamat lengkap tersedia setelah klaim berhasil.</dd></div>
             </dl>
             <p className="mt-6 flex items-start gap-2 rounded-lg bg-[#F5F7F1] p-4 text-sm leading-6 text-[#52645A]"><Clock3 aria-hidden="true" className="mt-0.5 shrink-0 text-[#1C6B4A]" size={17} />Listing ini diklaim secara utuh. Pastikan kamu dapat datang pada waktu pengambilan sebelum melanjutkan.</p>
           </AdminPanel>
